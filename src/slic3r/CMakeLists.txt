@@ -371,6 +371,10 @@ set(SLIC3R_GUI_SOURCES
     GUI/SendSystemInfoDialog.hpp
     GUI/StepMeshDialog.cpp
     GUI/StepMeshDialog.hpp
+    GUI/AIPhotoTo3DDialog.cpp
+    GUI/AIPhotoTo3DDialog.hpp
+    GUI/AIPipelineClient.cpp
+    GUI/AIPipelineClient.hpp
     GUI/BaseTransparentDPIFrame.cpp
     GUI/BaseTransparentDPIFrame.hpp
     GUI/SyncAmsInfoDialog.cpp

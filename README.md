@@ -1,126 +1,277 @@
+# ThoxForge — QidiStudio + AI Photo-to-3D Mesh Pipeline
 
-![QIDIStudio logo](/resources/images/QIDIStudio.png?raw=true)
+> Fork of [QIDIStudio](https://github.com/QIDITECH/QIDIStudio) with an integrated AI pipeline that converts photos of physical devices into watertight (manifold) 3D-printable meshes.
 
-# QIDIStudio
-QIDIStudio is a professional 3D printer slicing software，which is perfectly compatible with all printers and 3D printing filaments of QIDI Technology. Multi-platform support, simple inerface, easy to use, complate functions, easy to learn 3D printing.
+## What It Does
 
-QIDIStudio is based on [BambuStudio](https://github.com/bambulab/BambuStudio) by Bambu Lab, Bambu Studio is based on [PrusaSlicer](https://github.com/prusa3d/PrusaSlicer) by Prusa Research, which is from [Slic3r](https://github.com/Slic3r/Slic3r) by Alessandro Ranellucci and the RepRap community.
-Thanks to Bambulab, PrusaSlicer and OrcaSlicer for their contributions to the 3D printing community.
+ThoxForge adds an **AI Photo-to-3D** menu item to QidiStudio's File → Import menu. Click it, drop in one or more photos of a physical device, and the system:
 
-See the [QIDI's homepage](https://qidi3d.com) for more information.
+1. **Removes the background** from each photo (rembg/U2Net)
+2. **Generates a 3D mesh** using Microsoft TRELLIS (primary) or TripoSR (fallback)
+3. **Repairs and makes watertight** — removes degenerate faces, fills holes, fixes winding/normals, flattens the bottom for build-plate adhesion, scales to real-world mm dimensions
+4. **Imports the STL/3MF directly into the plater** — ready to slice and print
 
-<details open>
-  <summary>Content Navigation</summary>
-  <ol>
-    <li>
-      <a href="#function-introduction">Function Introduction</a>
-    </li>
-    <li>
-      <a href="#wiki">Wiki</a>
-    </li>
-    <li>
-      <a href="#Supporting-QIDI-Link-App">Supporting QIDI Link App</a>
-    </li>
-    <li>
-      <a href="#report-issues-and-make-suggestions">Report Issues and Make Suggestions</a>
-      <ul>
-        <li><a href="#some-formatting-requirements">Some Formatting Requirements</a></li>
-      </ul>
-    </li>
-    <li>
-      <a href="#license">License</a>
-    </li>
-  </ol>
-</details>
+```
+[Photos] → [Background Removal] → [AI Mesh Gen (TRELLIS/TripoSR)] → [Mesh Repair] → [Manifold STL] → [QidiStudio Plater]
+```
 
-----
-## Function Introduction
+## Why This Exists
 
-<p align="center">
-  <img src="/readmeRes/UI.png" alt="UI">
-</p>
+Single-photo AI mesh generators (TRELLIS, TripoSR) produce impressive 3D shapes but:
+- The output is rarely watertight/manifold — slicers reject it
+- The bottom is curved — won't adhere to the build plate
+- The scale is unknown — not real-world dimensions
+- There's no integration with 3D printing software
 
-### Key features are:
+ThoxForge automates the full pipeline: photo → AI mesh → repair → printable STL → slicer, all inside QidiStudio.
 
-* **Slicer:** Fast and stable 3D model slicer
-* **Printer:** Perfect compatibility with all high-speed 3D printers of QIDI TECH
-* **Filament:** Perfect compatibility with all filaments of QIDI TECH and some general filaments
-* **LAN:** The printer can be directly connected through IP, convenient, safe and stable
-* **Internet:** Remote connection, start printing anytime, anywhere
+## Architecture
 
-### Other major features are:
+```
+┌─────────────────────────────────────────────────────┐
+│           QidiStudio (C++ / wxWidgets)               │
+│                                                      │
+│  File → Import → "AI Photo-to-3D Mesh..."            │
+│  ┌─────────────────────────────────────────────┐    │
+│  │  AIPhotoTo3DDialog (GUI)                      │    │
+│  │  • Image drop zone + file picker             │    │
+│  │  • Backend selector (TRELLIS/TripoSR/Auto)   │    │
+│  │  • Quality presets (Draft/Medium/High/Ultra) │    │
+│  │  • Target dimensions (mm)                    │    │
+│  │  • Progress bar + status                     │    │
+│  │  • Import to Plater / Save As                 │    │
+│  └──────────────────┬──────────────────────────┘    │
+│                     │ HTTP :7861 (libcurl)             │
+│  ┌──────────────────▼──────────────────────────┐    │
+│  │  AIPipelineClient (C++ libcurl HTTP client)  │    │
+│  │  Multipart file upload → binary mesh download│    │
+│  └──────────────────┬──────────────────────────┘    │
+│                     │                                 │
+└─────────────────────┼─────────────────────────────────┘
+                      │
+┌─────────────────────▼─────────────────────────────────┐
+│        AI Pipeline Server (Python / Flask)            │
+│                                                        │
+│  ai_pipeline/server.py — port 7861                     │
+│  ┌─────────────────────────────────────────────┐      │
+│  │  1. Background Removal (rembg)               │      │
+│  │  2. AI Mesh Generation                       │      │
+│  │     • TRELLIS (microsoft/TRELLIS-image-large)│      │
+│  │     • TripoSR (stabilityai/TripoSR)          │      │
+│  │  3. Mesh Repair (trimesh + pymeshlab)        │      │
+│  │     • Make watertight/manifold               │      │
+│  │     • Flatten bottom                         │      │
+│  │     • Scale to dimensions                    │      │
+│  │     • Simplify                               │      │
+│  │  4. Export (STL/OBJ/GLB/3MF)                 │      │
+│  └─────────────────────────────────────────────┘      │
+└────────────────────────────────────────────────────────┘
+```
 
-* **Model:** A variety of model operations, move, scale, rotate, crop, color, repair, combine, split, and more
-* **Parameter:** Rich parameter Settings, fine adjustment for a variety of complex models and application scenarios
-* **Calibration:** Multiple calibration functions to adjust the best parameters according to the actual situation
+## Requirements
 
-----
+### QidiStudio (C++ side)
+- Same as [QidiStudio build requirements](https://github.com/QIDITECH/QIDIStudio#building):
+  - CMake 3.13+
+  - wxWidgets 3.1+
+  - Boost, TBB, glew, and other deps (see `deps/`)
+  - Visual Studio (Windows) or Xcode (macOS) or GCC (Linux)
+  - **libcurl** (already a QidiStudio dependency)
 
-## wiki
-The wiki below aims to provide a detailed explanation of the QIDIStudio settings, how to get the most out of them as well as how to calibrate and setup your printer.
+### AI Pipeline Server (Python side)
+- **Python 3.10 or 3.11**
+- **NVIDIA GPU with CUDA** (12GB+ VRAM for TRELLIS, 6GB for TripoSR)
+- **CUDA Toolkit 12.1+**
+- **Visual Studio with "Desktop development with C++"** (Windows, for building CUDA extensions)
+- 128GB RAM recommended (for TRELLIS model loading)
 
-The wiki is work in progress so bear with us while we get it up and running!
+## Setup
 
-**[Access the wiki here](https://wiki.qidi3d.com/en/software/qidi-studio)**
+### 1. Clone This Repo
 
-----
+```bash
+git clone <your-fork-url> QidiStudio-AI
+cd QidiStudio-AI
+```
 
-## Supporting QIDI Link App
+### 2. Set Up the AI Pipeline Server
 
-**[Access QIDI Link App Guide Here](https://wiki.qidi3d.com/en/app)**
+```bash
+cd ai_pipeline
 
-The supporting QIDI Link App supports IOS and Android platforms. In the app, you can scan the code to connect to the printer, remotely monitor the printer's printing progress, control the printer's printing parameters, and perform operations such as feeding and returning materials.
-<p align="center">
-  <img  src="/readmeRes/qidilink.png" alt="Add filament option ——Seal">
-</p>
+# Create virtual environment
+python -m venv .venv
+source .venv/bin/activate    # Linux/macOS
+# .venv\Scripts\activate     # Windows
 
-----
+# Install dependencies
+pip install -r requirements.txt
 
-## Report Issues and Make Suggestions
+# Clone TRELLIS (primary backend)
+git clone https://github.com/microsoft/TRELLIS.git
+cd TRELLIS
+pip install -r requirements.txt
+pip install extensions/nvdiffrast
+pip install extensions/diff-gaussian-rasterization
+pip install extensions/simple-knn
+cd ..
 
-Please send your question in the form of video or pictures to us through the [After-Sales Service](https://qidi3d.com/pages/warranty-policy-after-sales-support), we will reply to your information within 12 hours.
+# Clone TripoSR (fallback backend, optional but recommended)
+git clone https://github.com/VAST-AI-Research/TripoSR.git
+cd TripoSR
+pip install -r requirements.txt
+cd ..
 
-Please try to contact us through [After-Sales Service](https://qidi3d.com/pages/warranty-policy-after-sales-support) and report problems or suggestions. On github, we cannot obtain your order information, operation records and other private intelligence, nor can we generate after-sales orders, send repair files, etc. Thank you for your understanding and cooperation.
+# Start the server
+python server.py --port 7861 --preload
+```
 
-### Some formatting requirements
+Or use the convenience script:
+```bash
+./start_server.sh --preload
+```
 
-#### Issue Title:
+The server runs at `http://127.0.0.1:7861`. On first run, TRELLIS downloads ~16GB of model weights from Hugging Face.
 
-Briefly describe the issue (e.g., `could not open file`)
+### 3. Build QidiStudio
 
-#### Description:
+Follow the [standard QidiStudio build instructions](https://github.com/QIDITECH/QIDIStudio#building), with one addition:
 
-Provide a detailed description of the issue.This will help our engineers quickly locate the problem and assist you in
-resolving it
+The AI pipeline files are automatically included via `src/slic3r/CMakeLists.txt`. No additional CMake flags needed.
 
-- **Issue Description**:
-  - A clear explanation of the problem.
-  - Compare the expected behavior with the actual behavior.
+```bash
+mkdir build && cd build
+cmake .. -DCMAKE_BUILD_TYPE=Release
+cmake --build . --config Release -j
+```
 
-- **Steps to Reproduce**:
-  1. Step one
-  2. Step two
-  3. Step three
+### 4. Run
 
-  - Specific steps to reproduce the issue. Include a precise sequence of actions if possible.
+1. Start the AI Pipeline Server (step 2 above)
+2. Launch QidiStudio
+3. **File → Import → AI Photo-to-3D Mesh...**
+4. Add photos (drag-drop or browse)
+5. Select backend, quality, target dimensions
+6. Click **Generate 3D Mesh**
+7. Click **Import to Plate** or **Save As...**
 
-- **Additional Information**:
-  - **Screenshots/Images**: Attach relevant screenshots or images that help in understanding the issue. Please add or
-    link to images here.
-  - **Environment Information**:
-    - Operating System Version
-    - Browser/Application Version
-    - Other relevant environment details
+## Using the AI Pipeline
 
-----
+### Quality Presets
+
+| Preset | Speed | Quality | Use Case |
+|--------|-------|---------|----------|
+| Draft | ~5s | Rough shape | Quick preview |
+| Medium | ~15s | Good | General use |
+| High | ~30s | Excellent | Devices (default) |
+| Ultra | ~60s | Maximum | Final production |
+
+### Tips for Best Results
+
+1. **Use isolated photos**: Remove busy backgrounds before upload (or enable auto-remove background)
+2. **Multiple photos help**: TRELLIS supports multi-image input for better reconstruction of hidden sides
+3. **Good lighting**: Even, diffused lighting produces better meshes
+4. **Flat surface**: Place device on a flat surface for at least one photo
+5. **Set target dimensions**: Enter real-world mm dimensions for accurate scaling
+6. **Keep flatten bottom on**: Ensures the mesh adheres to the build plate
+
+### Backend Selection
+
+- **Auto**: Uses TRELLIS, falls back to TripoSR if TRELLIS fails (recommended)
+- **TRELLIS**: Best geometric accuracy for structured devices. Requires more GPU/RAM.
+- **TripoSR**: Fast single-image reconstruction. Good for quick previews.
+
+## API Reference
+
+The AI Pipeline Server exposes a REST API:
+
+```bash
+# Check server health
+curl http://127.0.0.1:7861/health
+
+# Generate mesh from image
+curl -X POST http://127.0.0.1:7861/generate \
+  -F "images[]=@device_photo.jpg" \
+  -F "backend=auto" \
+  -F "quality=high" \
+  -F "flatten=true" \
+  -F "remove_bg=true" \
+  -F "format=stl" \
+  -o output.stl
+
+# Check response headers for metadata
+curl -X POST http://127.0.0.1:7861/generate \
+  -F "images[]=@device_photo.jpg" \
+  -D headers.txt \
+  -o output.stl
+
+# headers.txt will contain:
+# X-ThoxForge-Watertight: true
+# X-ThoxForge-Manifold: true
+# X-ThoxForge-Vertices: 12345
+# X-ThoxForge-Faces: 24690
+# X-ThoxForge-Backend: trellis
+# X-ThoxForge-Elapsed: 28.3
+```
+
+See [AGENT_TEAM.md](AGENT_TEAM.md) for full API documentation.
+
+## File Structure
+
+```
+QidiStudio-AI/
+├── ai_pipeline/                 # Python AI Pipeline Server
+│   ├── server.py                # Flask HTTP server with mesh generation + repair
+│   ├── requirements.txt         # Python dependencies
+│   ├── start_server.sh          # Convenience startup script
+│   ├── TRELLIS/                 # Cloned TRELLIS repo (not committed)
+│   └── TripoSR/                 # Cloned TripoSR repo (not committed)
+├── src/slic3r/GUI/
+│   ├── AIPhotoTo3DDialog.hpp    # Dialog header (wxWidgets)
+│   ├── AIPhotoTo3DDialog.cpp    # Dialog implementation
+│   ├── AIPipelineClient.hpp     # HTTP client header (libcurl)
+│   └── AIPipelineClient.cpp     # HTTP client implementation
+├── src/slic3r/CMakeLists.txt    # Modified to include new files
+├── src/slic3r/GUI/MainFrame.cpp # Modified to add menu entry
+├── AGENT_TEAM.md                # Agent architecture documentation
+└── README.md                    # This file
+```
+
+## Resources & References
+
+- [Microsoft TRELLIS](https://github.com/microsoft/TRELLIS) — Structured 3D Latents (CVPR'25)
+- [TripoSR](https://github.com/VAST-AI-Research/TripoSR) — Fast image-to-3D model
+- [AutoForge](https://github.com/hvoss-tech/AutoForge) — Image-to-STL heightmap (reference)
+- [Modly3D](https://github.com/lightningpixel/modly) — Desktop AI image-to-3D (reference)
+- [QIDIStudio](https://github.com/QIDITECH/QIDIStudio) — Base slicer
+- [BambuStudio](https://github.com/bambulab/BambuStudio) — Upstream
+- [PrusaSlicer](https://github.com/prusa3d/PrusaSlicer) — Original upstream
+- [trimesh](https://github.com/mikedh/trimesh) — Python mesh processing
+- [PyMeshLab](https://github.com/cnr-isti-vclab/PyMeshLab) — Advanced mesh repair
+- [rembg](https://github.com/danielgatis/rembg) — Background removal
+
 ## License
 
-QIDIStudio is licensed under the _GNU Affero General Public License, version 3_. QIDIStudio is based on BambuStudio by Bambu Lab.
+QIDIStudio is licensed under **GNU AGPL v3**. This fork inherits the same license.
+All new files (AI pipeline, GUI integration) are also AGPL v3.
 
-BambuStudio is licensed under the _GNU Affero General Public License, version 3_. BambuStudio is based on PrusaSlicer by PrusaResearch.
+See [LICENSE](LICENSE) for details.
 
-PrusaSlicer is licensed under the _GNU Affero General Public License, version 3_. PrusaSlicer is owned by Prusa Research. PrusaSlicer is originally based on Slic3r by Alessandro Ranellucci.
+## Contributing
 
-Slic3r is licensed under the _GNU Affero General Public License, version 3_. Slic3r was created by Alessandro Ranellucci with the help of many other contributors.
+This is a fork for THOX.ai internal use. PRs welcome.
 
-The _GNU Affero General Public License, version 3_ ensures that if you use any part of this software in any way (even behind a web server), your software must be released under the same license.
+```bash
+git checkout -b feature/your-feature
+git commit -m "feat: your feature"
+git push origin feature/your-feature
+```
+
+## Acknowledgments
+
+- **QIDI Tech** for QIDIStudio
+- **Bambu Lab** for BambuStudio
+- **Prusa Research** for PrusaSlicer
+- **Microsoft** for TRELLIS
+- **StabilityAI + VAST-AI** for TripoSR
+- The open-source 3D printing community

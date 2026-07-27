@@ -67,6 +67,7 @@
 #include "DailyTips.hpp"
 #include "FilamentGroupPopup.hpp"
 #include "FilamentMapDialog.hpp"
+#include "AIPhotoTo3DDialog.hpp"
 //cj_2
 #include "QDSDeviceManager.hpp"
 
@@ -3045,6 +3046,17 @@ void MainFrame::init_menubar_as_editor()
         append_menu_item(import_menu, wxID_ANY, _L("Import Configs") + dots /*+ "\tCtrl+I"*/, _L("Load configs"),
             [this](wxCommandEvent&) { load_config_file(); }, "menu_import", nullptr,
             [this](){return true; }, this);
+
+        // ThoxForge: AI Photo-to-3D mesh generation
+        import_menu->AppendSeparator();
+        append_menu_item(import_menu, wxID_ANY, _L("AI Photo-to-3D Mesh...") + dots, _L("Generate 3D-printable mesh from photos using AI"),
+            [this](wxCommandEvent&) {
+                if (m_plater) {
+                    AIPhotoTo3DDialog dlg(this, m_plater);
+                    dlg.ShowModal();
+                }
+            }, "menu_import", nullptr,
+            [this](){return can_add_models(); }, this);
 
         append_submenu(fileMenu, import_menu, wxID_ANY, _L("Import"), "");
 
