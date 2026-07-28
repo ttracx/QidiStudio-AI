@@ -3,6 +3,29 @@ name: QIDIStudio-CI
 on: [push, pull_request]
 
 jobs:
+  ai-sidecar:
+    name: AI sidecar contract and security checks
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+        cache: pip
+        cache-dependency-path: ai_pipeline/requirements-ci.txt
+    - name: Install lightweight test dependencies
+      run: python -m pip install --requirement ai_pipeline/requirements-ci.txt
+    - name: Compile and test sidecar
+      working-directory: ai_pipeline
+      run: |
+        python -m compileall -q server.py test_server_api.py test_pipeline.py
+        python -m unittest -v test_server_api.py
+        python test_pipeline.py
+
   main:    
     strategy:
       matrix:
@@ -68,13 +91,12 @@ jobs:
       run: choco install strawberryperl -y
 
     - name: Checkout code
-      uses: actions/checkout@v2
+      uses: actions/checkout@v4
 
     - name: Build Dependencies on Windows
       if: startsWith(matrix.os, 'windows-')
       shell: cmd
       run: |
-          set CMAKE_TLS_VERIFY=0
           cd deps
           mkdir build
           cd build
@@ -95,7 +117,6 @@ jobs:
     - name: Build QIDI Studio on Linux 
       if: startsWith(matrix.os, 'ubuntu-')
       run: |
-          export CMAKE_TLS_VERIFY=0
           sed -i "s/-DQDT_INTERNAL_TESTING=0/-DQDT_INTERNAL_TESTING=1 -DQDT_RELEASE_TO_PUBLIC=0/" BuildLinux.sh 
           chmod +x BuildLinux.sh
           ./BuildLinux.sh -dsi
@@ -103,7 +124,6 @@ jobs:
     - name: Build QIDI Studio on MacOS 
       if: startsWith(matrix.os, 'macos-')
       run: |
-          export CMAKE_TLS_VERIFY=0
           export ICU_PATH=$(brew --prefix icu4c)
           export BOOST_PATH=$(brew --prefix boost)
           export CURL_PATH=$(brew --prefix curl)
@@ -132,7 +152,7 @@ jobs:
       uses: actions/upload-artifact@v5.0.0
       with:
         name: QIDIStudio_macos
-        path: build/x86_64/QIDIStudio/QIDIStudio.app/       
+        path: build/*/QIDIStudio/QIDIStudio.app/
 
     - name: Upload Artifacts on Linux
       if: startsWith(matrix.os, 'ubuntu-')

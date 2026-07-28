@@ -1,4 +1,5 @@
 #include "AIPhotoTo3DDialog.hpp"
+#include "AIPipelineClient.hpp"
 #include "Plater.hpp"
 #include "GUI_App.hpp"
 #include "MainFrame.hpp"
@@ -33,6 +34,7 @@
 #include <wx/artprov.h>
 
 #include <nlohmann/json.hpp>
+#include <utility>
 
 namespace Slic3r {
 namespace GUI {
@@ -123,6 +125,9 @@ AIPhotoTo3DDialog::~AIPhotoTo3DDialog()
         m_worker_thread.join();
     }
     m_timer.Stop();
+    if (!m_last_result.output_path.empty()) {
+        wxRemoveFile(wxString::FromUTF8(m_last_result.output_path));
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -525,6 +530,10 @@ void AIPhotoTo3DDialog::start_generation()
     if (m_worker_thread.joinable()) {
         m_worker_thread.join();
     }
+    if (!m_last_result.output_path.empty()) {
+        wxRemoveFile(wxString::FromUTF8(m_last_result.output_path));
+        m_last_result = {};
+    }
     m_worker_thread = std::thread(&AIPhotoTo3DDialog::generation_thread_fn, this);
 }
 
@@ -554,8 +563,6 @@ void AIPhotoTo3DDialog::generation_thread_fn()
             result.elapsed_seconds
         ).ToUTF8().data();
         m_progress_percent = 100;
-        m_import_btn->Enable(true);
-        m_save_btn->Enable(true);
     } else {
         m_progress_message = "Error: " + result.error_message;
         m_progress_percent = 0;
@@ -563,8 +570,6 @@ void AIPhotoTo3DDialog::generation_thread_fn()
 
     m_last_result = result;
     m_generating = false;
-    m_cancel_btn->Enable(false);
-    m_generate_btn->Enable(true);
 
     // Stop timer on main thread
     CallAfter([this]() {
@@ -596,146 +601,39 @@ AIPhotoTo3DDialog::send_generate_request(const GenerateParams& params,
                                           const std::vector<std::string>& image_paths)
 {
     GenerateResult result;
-    result.success = false;
+    AIGenerateParams request_params;
+    request_params.backend = backend_to_string(params.backend);
+    request_params.quality = quality_to_string(params.quality);
+    request_params.seed = params.seed;
+    request_params.flatten_bottom = params.flatten_bottom;
+    request_params.remove_bg = params.remove_bg;
+    request_params.max_faces = params.max_faces;
+    request_params.format = format_to_string(params.format);
+    request_params.width_mm = params.width_mm;
+    request_params.depth_mm = params.depth_mm;
+    request_params.height_mm = params.height_mm;
+    request_params.server_url = params.server_url;
 
-    try {
-        // Build multipart form data manually using wxHTTP
-        // We'll use a temporary boundary and construct the body
-        std::string boundary = "----ThoxForgeBoundary" + std::to_string(wxGetUTCTimeMillis().GetValue());
+    AIPipelineClient client(params.server_url);
+    AIGenerateResult client_result = client.generate(
+        image_paths,
+        request_params,
+        [this](const std::string& message, int percent) {
+            update_progress(message, percent);
+        },
+        &m_cancel_requested
+    );
 
-        // Build the request body
-        std::string body;
-        std::vector<std::pair<std::string, std::string>> form_fields = {
-            {"backend", backend_to_string(params.backend)},
-            {"quality", quality_to_string(params.quality)},
-            {"seed", std::to_string(params.seed)},
-            {"flatten", params.flatten_bottom ? "true" : "false"},
-            {"remove_bg", params.remove_bg ? "true" : "false"},
-            {"max_faces", std::to_string(params.max_faces)},
-            {"format", format_to_string(params.format)},
-        };
-
-        if (params.width_mm > 0 && params.depth_mm > 0 && params.height_mm > 0) {
-            form_fields.push_back({"width_mm", std::to_string(params.width_mm)});
-            form_fields.push_back({"depth_mm", std::to_string(params.depth_mm)});
-            form_fields.push_back({"height_mm", std::to_string(params.height_mm)});
-        }
-
-        // Add form fields
-        for (const auto& field : form_fields) {
-            body += "--" + boundary + "\r\n";
-            body += "Content-Disposition: form-data; name=\"" + field.first + "\"\r\n\r\n";
-            body += field.second + "\r\n";
-        }
-
-        // Add image files
-        int img_idx = 0;
-        for (const auto& path : image_paths) {
-            if (m_cancel_requested) {
-                result.error_message = "Cancelled by user";
-                return result;
-            }
-
-            update_progress("Reading image " + std::to_string(img_idx + 1) + "/" +
-                           std::to_string(image_paths.size()) + "...",
-                           10 + (img_idx * 10 / image_paths.size()));
-
-            // Read file
-            wxFFile file(path, "rb");
-            if (!file.IsOpened()) {
-                result.error_message = "Cannot open file: " + path;
-                return result;
-            }
-            wxFileOffset fsize = file.Length();
-            std::vector<char> file_data(fsize);
-            file.Read(file_data.data(), fsize);
-            file.Close();
-
-            std::string filename = wxFileName(path).GetFullName().ToUTF8().data();
-
-            body += "--" + boundary + "\r\n";
-            body += "Content-Disposition: form-data; name=\"images[]\"; filename=\"" + filename + "\"\r\n";
-            body += "Content-Type: image/jpeg\r\n\r\n";
-            body += std::string(file_data.begin(), file_data.end());
-            body += "\r\n";
-            img_idx++;
-        }
-
-        body += "--" + boundary + "--\r\n";
-
-        update_progress("AI inference in progress (this may take 10-60 seconds)...", 30);
-
-        // Send HTTP POST
-        std::string url = params.server_url + "/generate";
-
-        // Use wxURL for the request
-        wxURL wxurl(url);
-        if (wxurl.GetError() != wxURL_NOERR) {
-            result.error_message = "Invalid URL: " + url;
-            return result;
-        }
-
-        wxHTTP& http = static_cast<wxHTTP&>(wxurl.GetProtocol());
-
-        // Set headers
-        http.SetPostText("Content-Type", "multipart/form-data; boundary=" + boundary);
-        http.SetPostText("Content-Length", std::to_string(body.size()));
-
-        // Write body to string stream
-        wxStringInputStream body_stream(body);
-        http.SetPostBuffer(body);
-
-        // Actually, wxHTTP is quite limited for multipart.
-        // In production, use libcurl (already linked in QidiStudio) instead.
-        // For now, fall through to libcurl-based approach.
-
-        // --- libcurl approach ---
-        result = download_mesh(url, "", result);
-
-    } catch (const std::exception& e) {
-        result.error_message = e.what();
-    }
-
+    result.success = client_result.success;
+    result.error_message = std::move(client_result.error_message);
+    result.output_path = std::move(client_result.output_path);
+    result.vertex_count = client_result.vertex_count;
+    result.face_count = client_result.face_count;
+    result.is_watertight = client_result.is_watertight;
+    result.is_manifold = client_result.is_manifold;
+    result.backend_used = std::move(client_result.backend_used);
+    result.elapsed_seconds = client_result.elapsed_seconds;
     return result;
-}
-
-bool AIPhotoTo3DDialog::download_mesh(const std::string& url,
-                                      const std::string& output_path,
-                                      GenerateResult& result)
-{
-    // In the real implementation, this uses libcurl (already linked in QidiStudio)
-    // to send the multipart POST and download the mesh file.
-    //
-    // The flow:
-    // 1. Build multipart form with images + params
-    // 2. POST to /generate
-    // 3. Read response headers for metadata (X-ThoxForge-Watertight, etc.)
-    // 4. Save response body to temp file
-    // 5. Return the temp file path
-    //
-    // libcurl is already a dependency of QidiStudio (see Utils/Http.cpp)
-
-    // Placeholder: in production this calls curl_easy_perform()
-    // with a multipart form. See the implementation guide for details.
-
-    // For now, create a temp file path
-    wxString temp_dir = wxStandardPaths::Get().GetTempDir();
-    wxString temp_file = temp_dir + "/thoxforge_output_" +
-                         wxString::Format("%lld", wxGetUTCTimeMillis().GetValue()) +
-                         "." + format_to_string(m_params.format);
-
-    result.output_path = temp_file.ToUTF8().data();
-
-    // Read response headers
-    // These would be set by curl's header callback
-    result.vertex_count = 0;
-    result.face_count = 0;
-    result.is_watertight = true;
-    result.is_manifold = true;
-    result.backend_used = backend_to_string(m_params.backend);
-    result.elapsed_seconds = 0.0;
-
-    return true;
 }
 
 // ---------------------------------------------------------------------------
@@ -816,13 +714,10 @@ bool AIPhotoTo3DDialog::LaunchServer(const std::string& script_path)
         return false;
     }
 
-    // Launch in background
-    wxString cmd = "xterm -e bash \"" + script + "\" --preload &";
-    // On Windows: cmd = "start cmd /k \"" + script + "\" --preload"
-    // On macOS: cmd = "osascript -e 'tell app \"Terminal\" to do script \"bash " + script + "\"'"
-
-    wxExecute(cmd, wxEXEC_ASYNC);
-    return true;
+    // Launch directly in the background. Depending on xterm made the button
+    // fail on a standard macOS installation.
+    const wxString cmd = "bash \"" + script + "\" --preload";
+    return wxExecute(cmd, wxEXEC_ASYNC) != 0;
 }
 
 // ---------------------------------------------------------------------------

@@ -7,10 +7,39 @@
 #include <cstring>
 #include <map>
 #include <algorithm>
-#include <unistd.h>
+#include <iterator>
+#include <mutex>
+
+#include <boost/filesystem.hpp>
 
 namespace Slic3r {
 namespace GUI {
+
+namespace {
+
+bool is_loopback_server_url(const std::string& url)
+{
+    static const std::vector<std::string> prefixes = {
+        "http://127.0.0.1",
+        "http://localhost",
+        "http://[::1]",
+    };
+    for (const std::string& prefix : prefixes) {
+        if (url.compare(0, prefix.size(), prefix) == 0) {
+            const size_t next = prefix.size();
+            return url.size() == next || url[next] == ':' || url[next] == '/';
+        }
+    }
+    return false;
+}
+
+void initialize_curl_once()
+{
+    static std::once_flag init_flag;
+    std::call_once(init_flag, []() { curl_global_init(CURL_GLOBAL_DEFAULT); });
+}
+
+} // namespace
 
 // ---------------------------------------------------------------------------
 // libcurl callbacks
@@ -64,16 +93,16 @@ size_t AIPipelineClient::headerCallback(void* contents, size_t size, size_t nmem
 AIPipelineClient::AIPipelineClient(const std::string& server_url)
     : m_server_url(server_url)
 {
-    curl_global_init(CURL_GLOBAL_DEFAULT);
+    initialize_curl_once();
 }
 
-AIPipelineClient::~AIPipelineClient()
-{
-    curl_global_cleanup();
-}
+AIPipelineClient::~AIPipelineClient() = default;
 
 bool AIPipelineClient::isServerRunning()
 {
+    if (!is_loopback_server_url(m_server_url))
+        return false;
+
     CURL* curl = curl_easy_init();
     if (!curl) return false;
 
@@ -106,6 +135,9 @@ bool AIPipelineClient::isServerRunning()
 
 std::string AIPipelineClient::getHealth()
 {
+    if (!is_loopback_server_url(m_server_url))
+        return "{}";
+
     CURL* curl = curl_easy_init();
     if (!curl) return "{}";
 
@@ -139,6 +171,10 @@ AIGenerateResult AIPipelineClient::generate(
 
     if (image_paths.empty()) {
         result.error_message = "No images provided";
+        return result;
+    }
+    if (!is_loopback_server_url(params.server_url)) {
+        result.error_message = "AI server URL must use local loopback HTTP";
         return result;
     }
 
@@ -208,24 +244,23 @@ AIGenerateResult AIPipelineClient::generate(
     std::string ext = params.format;
     if (ext == "3mf") ext = "3mf";
     // Generate temp file path
-    std::string temp_filename = "/tmp/thoxforge_output_XXXXXX." + ext;
-    // Use mkstemp for safety
-    char temp_template[] = "/tmp/thoxforge_output_XXXXXX";
-    int fd = mkstemp(temp_template);
-    if (fd < 0) {
-        result.error_message = "Failed to create temp file";
-        curl_mime_free(form);
-        curl_easy_cleanup(curl);
-        return result;
-    }
-    close(fd);
-    std::string temp_path = std::string(temp_template) + "." + ext;
-    rename(temp_template, temp_path.c_str());
+    // Use Boost's cross-platform temp directory and high-entropy unique path.
+    // The previous mkstemp/unistd implementation did not compile on Windows.
+    const boost::filesystem::path temp_path_fs =
+        boost::filesystem::temp_directory_path() /
+        boost::filesystem::unique_path("thoxforge_output_%%%%-%%%%-%%%%-%%%%." + ext);
+    const std::string temp_path = temp_path_fs.string();
 
     // Set up download context
     DownloadContext ctx;
     ctx.write_to_file = true;
     ctx.file.open(temp_path, std::ios::binary);
+    if (!ctx.file.is_open()) {
+        result.error_message = "Failed to open temporary output file";
+        curl_mime_free(form);
+        curl_easy_cleanup(curl);
+        return result;
+    }
 
     std::string url = params.server_url + "/generate";
 
@@ -266,11 +301,17 @@ AIGenerateResult AIPipelineClient::generate(
     }
 
     if (http_code != 200) {
-        // Try to parse error from buffer (non-file response on error)
+        // Error responses were written to the temporary file because the
+        // response status is only available after transfer completion.
+        std::ifstream error_stream(temp_path, std::ios::binary);
+        std::string error_body(
+            (std::istreambuf_iterator<char>(error_stream)),
+            std::istreambuf_iterator<char>()
+        );
         result.error_message = "Server returned HTTP " + std::to_string(http_code);
-        if (!ctx.buffer.empty()) {
+        if (!error_body.empty()) {
             try {
-                auto json = nlohmann::json::parse(ctx.buffer);
+                auto json = nlohmann::json::parse(error_body);
                 if (json.contains("error")) {
                     result.error_message += ": " + json["error"].get<std::string>();
                 }

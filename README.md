@@ -2,6 +2,23 @@
 
 > Fork of [QIDIStudio](https://github.com/QIDITECH/QIDIStudio) with an integrated AI pipeline that converts photos of physical devices into watertight (manifold) 3D-printable meshes.
 
+## Readiness status
+
+This repository is a **host-tested MVP**, not a signed production release.
+
+| Area | Evidence-backed status |
+|---|---|
+| Local sidecar API | Contract/security tests pass without model weights |
+| Mesh repair/export | Synthetic smoke tests pass |
+| Desktop request path | Real libcurl multipart client is wired; full QIDIStudio build is pending |
+| TRELLIS/TripoSR inference | Requires a compatible NVIDIA/CUDA host and locally installed model runtime; not validated in this repository snapshot |
+| macOS distribution | No signed/notarized app artifact is present |
+| Windows/Linux distribution | CI definitions exist; current fork CI results and install artifacts must be verified before release |
+
+See [security_model.md](docs/security_model.md) and
+[development_queue.md](docs/development_queue.md) for exact boundaries and
+release gates.
+
 ## What It Does
 
 ThoxForge adds an **AI Photo-to-3D** menu item to QidiStudio's File → Import menu. Click it, drop in one or more photos of a physical device, and the system:
@@ -133,6 +150,17 @@ Or use the convenience script:
 
 The server runs at `http://127.0.0.1:7861`. On first run, TRELLIS downloads ~16GB of model weights from Hugging Face.
 
+That first-run download is the only intended model-acquisition network path.
+For an offline/private deployment, pre-stage the model repositories and Python
+packages before disconnecting the host. Runtime image processing and generation
+use the local sidecar and local model runtime. No telemetry is added by
+ThoxForge.
+
+The API is local-only by default. Non-loopback hosts are rejected unless the
+operator supplies both a non-loopback `--host` and `--allow-remote`. Remote mode
+does not provide authentication or transport encryption and is not approved for
+sensitive data.
+
 ### 3. Build QidiStudio
 
 Follow the [standard QidiStudio build instructions](https://github.com/QIDITECH/QIDIStudio#building), with one addition:
@@ -215,6 +243,42 @@ curl -X POST http://127.0.0.1:7861/generate \
 ```
 
 See [AGENT_TEAM.md](AGENT_TEAM.md) for full API documentation.
+
+### Sidecar validation
+
+These checks do not download model weights or require a GPU:
+
+```bash
+cd ai_pipeline
+python -m pip install --requirement requirements-ci.txt
+python -m compileall -q server.py test_server_api.py
+python -m unittest -v test_server_api.py
+python test_pipeline.py
+```
+
+Request controls include a 64 MiB total request limit, eight-image maximum,
+16 MiB per-image maximum, image decode/pixel validation, bounded mesh settings,
+loopback host enforcement, browser origin rejection, and sanitized error
+responses.
+
+## Packaging and release boundary
+
+`BuildMac.sh` can produce an unsigned local `.app` after the QIDIStudio
+dependencies are built. This repository does not currently include a hardened
+runtime/signing configuration, Developer ID evidence, notarization submission,
+stapling evidence, or a distributable DMG/PKG. Do not label a local build as a
+notarized macOS release.
+
+Minimum macOS release proof still required:
+
+```bash
+codesign --verify --deep --strict --verbose=2 QIDIStudio.app
+spctl --assess --type execute --verbose=4 QIDIStudio.app
+xcrun stapler validate QIDIStudio.app
+```
+
+Run those commands against the actual exported artifact after signing and
+notarization; source settings alone are not distribution proof.
 
 ## File Structure
 

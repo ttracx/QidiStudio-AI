@@ -22,21 +22,21 @@ Usage:
 import os
 import sys
 import io
-import json
 import time
 import tempfile
-import traceback
 import argparse
 import logging
-from pathlib import Path
+import ipaddress
+import uuid
+import warnings
 from typing import Optional, List, Tuple
+from urllib.parse import urlsplit
 
 import numpy as np
-from PIL import Image
+from PIL import Image, UnidentifiedImageError
 
 # Flask for HTTP API
-from flask import Flask, request, jsonify, send_file, Response
-from flask_cors import CORS
+from flask import Flask, request, jsonify, send_file
 
 # Mesh processing
 import trimesh
@@ -442,11 +442,156 @@ def remove_background(image: Image.Image) -> Image.Image:
 # ---------------------------------------------------------------------------
 
 app = Flask(__name__)
-CORS(app)
+app.config.update(
+    # Bound request memory/disk use before Flask parses multipart bodies.
+    MAX_CONTENT_LENGTH=64 * 1024 * 1024,
+    LOCAL_ONLY=True,
+)
+
+MAX_IMAGES = 8
+MAX_IMAGE_FILE_BYTES = 16 * 1024 * 1024
+MAX_IMAGE_PIXELS = 40_000_000
+ALLOWED_IMAGE_FORMATS = {"PNG", "JPEG", "BMP", "WEBP", "TIFF"}
+ALLOWED_BACKENDS = {"trellis", "triposr", "auto"}
+ALLOWED_QUALITIES = {"draft", "medium", "high", "ultra"}
+ALLOWED_OUTPUT_FORMATS = {"stl", "obj", "glb", "3mf"}
+MAX_FACES_MIN = 1_000
+MAX_FACES_MAX = 5_000_000
 
 # Global backend instances
 _backends = {}
 _active_backend = "trellis"
+
+
+class APIValidationError(ValueError):
+    """A safe, client-visible request validation error."""
+
+
+def _is_loopback(value: str) -> bool:
+    try:
+        return ipaddress.ip_address(value).is_loopback
+    except ValueError:
+        return value.lower() == "localhost"
+
+
+@app.before_request
+def enforce_local_boundary():
+    """Reject DNS rebinding and browser cross-origin requests in local mode."""
+    if not app.config["LOCAL_ONLY"]:
+        return None
+
+    peer = request.remote_addr or ""
+    host = urlsplit(f"//{request.host}").hostname or ""
+    if not _is_loopback(peer) or not _is_loopback(host):
+        return jsonify({"error": "The ThoxForge API is local-only"}), 403
+
+    origin = request.headers.get("Origin")
+    if origin:
+        origin_host = urlsplit(origin).hostname or ""
+        if not _is_loopback(origin_host):
+            return jsonify({"error": "Cross-origin browser requests are not allowed"}), 403
+    return None
+
+
+@app.after_request
+def add_security_headers(response):
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["Cross-Origin-Resource-Policy"] = "same-origin"
+    return response
+
+
+@app.errorhandler(413)
+def request_too_large(_error):
+    return jsonify({"error": "Request exceeds the 64 MiB limit"}), 413
+
+
+def _validated_choice(value: str, field: str, allowed: set[str]) -> str:
+    normalized = str(value).lower()
+    if normalized not in allowed:
+        choices = ", ".join(sorted(allowed))
+        raise APIValidationError(f"{field} must be one of: {choices}")
+    return normalized
+
+
+def _validated_int(value, field: str, minimum: int, maximum: int) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError) as exc:
+        raise APIValidationError(f"{field} must be an integer") from exc
+    if not minimum <= parsed <= maximum:
+        raise APIValidationError(f"{field} must be between {minimum} and {maximum}")
+    return parsed
+
+
+def _validated_bool(value, field: str) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str) and value.lower() in {"true", "false"}:
+        return value.lower() == "true"
+    raise APIValidationError(f"{field} must be true or false")
+
+
+def _validated_dimensions(values) -> Optional[Tuple[float, float, float]]:
+    if not values or all(value in (None, "") for value in values):
+        return None
+    if len(values) != 3 or any(value in (None, "") for value in values):
+        raise APIValidationError("width_mm, depth_mm, and height_mm must be provided together")
+    try:
+        dimensions = tuple(float(value) for value in values)
+    except (TypeError, ValueError) as exc:
+        raise APIValidationError("Target dimensions must be numbers") from exc
+    if any(not 0 < value <= 10_000 for value in dimensions):
+        raise APIValidationError("Target dimensions must be greater than 0 and at most 10000 mm")
+    return dimensions
+
+
+def _load_image(data: bytes) -> Image.Image:
+    if not data:
+        raise APIValidationError("Uploaded images must not be empty")
+    if len(data) > MAX_IMAGE_FILE_BYTES:
+        raise APIValidationError("Each image must be 16 MiB or smaller")
+
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", Image.DecompressionBombWarning)
+            probe = Image.open(io.BytesIO(data))
+            if probe.format not in ALLOWED_IMAGE_FORMATS:
+                raise APIValidationError("Unsupported image format")
+            width, height = probe.size
+            if width <= 0 or height <= 0 or width * height > MAX_IMAGE_PIXELS:
+                raise APIValidationError("Each image must contain at most 40 million pixels")
+            probe.verify()
+        return Image.open(io.BytesIO(data)).convert("RGB")
+    except APIValidationError:
+        raise
+    except (Image.DecompressionBombError, Image.DecompressionBombWarning, UnidentifiedImageError, OSError) as exc:
+        raise APIValidationError("Invalid or unsafe image") from exc
+
+
+def _load_images(raw_images: List[bytes], remove_bg: bool) -> List[Image.Image]:
+    if not raw_images:
+        raise APIValidationError("No images provided")
+    if len(raw_images) > MAX_IMAGES:
+        raise APIValidationError(f"At most {MAX_IMAGES} images are allowed")
+    images = [_load_image(data) for data in raw_images]
+    return [remove_background(image) for image in images] if remove_bg else images
+
+
+def _export_mesh_bytes(mesh: trimesh.Trimesh, output_format: str) -> bytes:
+    exported = mesh.export(file_type=output_format)
+    if isinstance(exported, str):
+        return exported.encode("utf-8")
+    return bytes(exported)
+
+
+def _safe_internal_error(exc: Exception):
+    reference = uuid.uuid4().hex[:12]
+    logger.exception("[Server] Internal error reference=%s: %s", reference, exc)
+    return jsonify({
+        "error": "Mesh generation failed",
+        "reference": reference,
+    }), 500
 
 
 def get_backend(name: str) -> MeshGenerationBackend:
@@ -476,8 +621,15 @@ def backends():
     """List or set active backend."""
     global _active_backend
     if request.method == 'POST':
-        data = request.json
-        _active_backend = data.get('backend', 'trellis')
+        data = request.get_json(silent=True)
+        if not isinstance(data, dict):
+            return jsonify({"error": "A JSON object is required"}), 400
+        try:
+            _active_backend = _validated_choice(
+                data.get("backend", "trellis"), "backend", ALLOWED_BACKENDS
+            )
+        except APIValidationError as exc:
+            return jsonify({"error": str(exc)}), 400
         return jsonify({"active_backend": _active_backend})
     return jsonify({
         "active_backend": _active_backend,
@@ -515,30 +667,35 @@ def generate_mesh():
             files = request.files.getlist('images')
         if not files or len(files) == 0:
             return jsonify({"error": "No images provided"}), 400
+        if len(files) > MAX_IMAGES:
+            return jsonify({"error": f"At most {MAX_IMAGES} images are allowed"}), 400
 
-        backend_name = request.form.get('backend', _active_backend)
-        quality = request.form.get('quality', 'high')
-        seed = int(request.form.get('seed', 1))
-        flatten = request.form.get('flatten', 'true').lower() == 'true'
-        remove_bg = request.form.get('remove_bg', 'true').lower() == 'true'
-        max_faces = int(request.form.get('max_faces', 500000))
-        output_format = request.form.get('format', 'stl')
+        backend_name = _validated_choice(
+            request.form.get('backend', _active_backend), "backend", ALLOWED_BACKENDS
+        )
+        quality = _validated_choice(
+            request.form.get('quality', 'high'), "quality", ALLOWED_QUALITIES
+        )
+        seed = _validated_int(request.form.get('seed', 1), "seed", -2_147_483_648, 2_147_483_647)
+        flatten = _validated_bool(request.form.get('flatten', 'true'), "flatten")
+        remove_bg = _validated_bool(request.form.get('remove_bg', 'true'), "remove_bg")
+        max_faces = _validated_int(
+            request.form.get('max_faces', 500000),
+            "max_faces",
+            MAX_FACES_MIN,
+            MAX_FACES_MAX,
+        )
+        output_format = _validated_choice(
+            request.form.get('format', 'stl'), "format", ALLOWED_OUTPUT_FORMATS
+        )
 
-        target_dims = None
-        w = request.form.get('width_mm')
-        d = request.form.get('depth_mm')
-        h = request.form.get('height_mm')
-        if w and d and h:
-            target_dims = (float(w), float(d), float(h))
+        target_dims = _validated_dimensions([
+            request.form.get('width_mm'),
+            request.form.get('depth_mm'),
+            request.form.get('height_mm'),
+        ])
 
-        # Load images
-        images = []
-        for f in files:
-            img = Image.open(io.BytesIO(f.read()))
-            img = img.convert('RGB')
-            if remove_bg:
-                img = remove_background(img)
-            images.append(img)
+        images = _load_images([file.read(MAX_IMAGE_FILE_BYTES + 1) for file in files], remove_bg)
 
         logger.info(f"[Server] Received {len(images)} images, backend={backend_name}, "
                      f"quality={quality}, format={output_format}")
@@ -570,45 +727,29 @@ def generate_mesh():
         is_manifold = mesh.is_winding_consistent
 
         # Export
-        ext = output_format.lower()
-        with tempfile.NamedTemporaryFile(suffix=f'.{ext}', delete=False) as out:
-            if ext == 'stl':
-                mesh.export(out.name, file_type='stl')
-            elif ext == 'obj':
-                mesh.export(out.name, file_type='obj')
-            elif ext == 'glb':
-                mesh.export(out.name, file_type='glb')
-            elif ext == '3mf':
-                mesh.export(out.name, file_type='3mf')
-            else:
-                mesh.export(out.name, file_type='stl')
-                ext = 'stl'
+        mesh_bytes = _export_mesh_bytes(mesh, output_format)
+        elapsed = time.time() - start_time
+        logger.info(f"[Server] Done in {elapsed:.1f}s. "
+                    f"Watertight={is_watertight}, Manifold={is_manifold}")
 
-            elapsed = time.time() - start_time
-            logger.info(f"[Server] Done in {elapsed:.1f}s. "
-                         f"Watertight={is_watertight}, Manifold={is_manifold}")
+        resp = send_file(
+            io.BytesIO(mesh_bytes),
+            as_attachment=True,
+            download_name=f"thoxforge_output.{output_format}",
+            mimetype='application/octet-stream'
+        )
+        resp.headers['X-ThoxForge-Watertight'] = str(is_watertight)
+        resp.headers['X-ThoxForge-Manifold'] = str(is_manifold)
+        resp.headers['X-ThoxForge-Vertices'] = str(len(mesh.vertices))
+        resp.headers['X-ThoxForge-Faces'] = str(len(mesh.faces))
+        resp.headers['X-ThoxForge-Backend'] = backend.name
+        resp.headers['X-ThoxForge-Elapsed'] = str(round(elapsed, 1))
+        return resp
 
-            # Return file + metadata via custom header
-            resp = send_file(
-                out.name,
-                as_attachment=True,
-                download_name=f"thoxforge_output.{ext}",
-                mimetype='application/octet-stream'
-            )
-            resp.headers['X-ThoxForge-Watertight'] = str(is_watertight)
-            resp.headers['X-ThoxForge-Manifold'] = str(is_manifold)
-            resp.headers['X-ThoxForge-Vertices'] = str(len(mesh.vertices))
-            resp.headers['X-ThoxForge-Faces'] = str(len(mesh.faces))
-            resp.headers['X-ThoxForge-Backend'] = backend_name
-            resp.headers['X-ThoxForge-Elapsed'] = str(round(elapsed, 1))
-            return resp
-
-    except Exception as e:
-        logger.error(f"[Server] Error: {e}\n{traceback.format_exc()}")
-        return jsonify({
-            "error": str(e),
-            "traceback": traceback.format_exc()
-        }), 500
+    except APIValidationError as exc:
+        return jsonify({"error": str(exc)}), 400
+    except Exception as exc:
+        return _safe_internal_error(exc)
 
 
 @app.route('/generate_json', methods=['POST'])
@@ -621,32 +762,34 @@ def generate_mesh_json():
     start_time = time.time()
 
     try:
-        data = request.json
+        data = request.get_json(silent=True)
+        if not isinstance(data, dict):
+            raise APIValidationError("A JSON object is required")
         images_b64 = data.get('images', [])
-        if not images_b64:
-            return jsonify({"error": "No images provided"}), 400
+        if not isinstance(images_b64, list):
+            raise APIValidationError("images must be an array")
 
-        backend_name = data.get('backend', _active_backend)
-        quality = data.get('quality', 'high')
-        seed = int(data.get('seed', 1))
-        flatten = data.get('flatten', True)
-        remove_bg = data.get('remove_bg', True)
-        max_faces = int(data.get('max_faces', 500000))
-        output_format = data.get('format', 'stl')
+        backend_name = _validated_choice(
+            data.get('backend', _active_backend), "backend", ALLOWED_BACKENDS
+        )
+        quality = _validated_choice(data.get('quality', 'high'), "quality", ALLOWED_QUALITIES)
+        seed = _validated_int(data.get('seed', 1), "seed", -2_147_483_648, 2_147_483_647)
+        flatten = _validated_bool(data.get('flatten', True), "flatten")
+        remove_bg = _validated_bool(data.get('remove_bg', True), "remove_bg")
+        max_faces = _validated_int(
+            data.get('max_faces', 500000), "max_faces", MAX_FACES_MIN, MAX_FACES_MAX
+        )
+        output_format = _validated_choice(
+            data.get('format', 'stl'), "format", ALLOWED_OUTPUT_FORMATS
+        )
 
-        target_dims = None
-        dims = data.get('target_dimensions_mm')
-        if dims and len(dims) == 3:
-            target_dims = tuple(dims)
+        target_dims = _validated_dimensions(data.get('target_dimensions_mm'))
 
-        # Decode images
-        images = []
-        for b64 in images_b64:
-            img_data = base64.b64decode(b64)
-            img = Image.open(io.BytesIO(img_data)).convert('RGB')
-            if remove_bg:
-                img = remove_background(img)
-            images.append(img)
+        try:
+            raw_images = [base64.b64decode(item, validate=True) for item in images_b64]
+        except (TypeError, ValueError) as exc:
+            raise APIValidationError("images must contain valid base64 strings") from exc
+        images = _load_images(raw_images, remove_bg)
 
         # Generate
         if backend_name == "auto":
@@ -670,26 +813,26 @@ def generate_mesh_json():
         )
 
         # Export to base64
-        ext = output_format.lower()
-        buf = io.BytesIO()
-        mesh.export(buf, file_type=ext)
-        mesh_b64 = base64.b64encode(buf.getvalue()).decode('utf-8')
+        mesh_b64 = base64.b64encode(
+            _export_mesh_bytes(mesh, output_format)
+        ).decode('utf-8')
 
         elapsed = time.time() - start_time
         return jsonify({
             "mesh": mesh_b64,
-            "format": ext,
+            "format": output_format,
             "vertices": len(mesh.vertices),
             "faces": len(mesh.faces),
             "watertight": mesh.is_watertight,
             "manifold": mesh.is_winding_consistent,
-            "backend": backend_name,
+            "backend": backend.name,
             "elapsed_s": round(elapsed, 1),
         })
 
-    except Exception as e:
-        logger.error(f"[Server] Error: {e}\n{traceback.format_exc()}")
-        return jsonify({"error": str(e), "traceback": traceback.format_exc()}), 500
+    except APIValidationError as exc:
+        return jsonify({"error": str(exc)}), 400
+    except Exception as exc:
+        return _safe_internal_error(exc)
 
 
 def _check_cuda():
@@ -712,10 +855,21 @@ def main():
                         help='Default mesh generation backend')
     parser.add_argument('--debug', action='store_true', help='Enable debug mode')
     parser.add_argument('--preload', action='store_true', help='Preload model on startup')
+    parser.add_argument(
+        '--allow-remote',
+        action='store_true',
+        help='Explicitly allow non-loopback clients (no authentication is provided)',
+    )
     args = parser.parse_args()
+
+    if not _is_loopback(args.host) and not args.allow_remote:
+        parser.error("non-loopback --host requires --allow-remote")
+    if args.debug and not _is_loopback(args.host):
+        parser.error("--debug may only be used with a loopback host")
 
     global _active_backend
     _active_backend = args.backend
+    app.config["LOCAL_ONLY"] = not args.allow_remote
 
     logger.info("=" * 60)
     logger.info("ThoxForge AI Pipeline Server")

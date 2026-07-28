@@ -141,10 +141,6 @@ private:
     // Server communication
     GenerateResult send_generate_request(const GenerateParams& params,
                                           const std::vector<std::string>& image_paths);
-    bool        download_mesh(const std::string& url,
-                              const std::string& output_path,
-                              GenerateResult& result);
-
     // Import to plater
     void        import_to_plater(const std::string& mesh_path);
 

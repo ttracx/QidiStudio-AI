@@ -1,0 +1,8 @@
+# Lightweight sidecar validation dependencies. Model runtimes are intentionally
+# excluded so CI never downloads weights or requires a GPU.
+Flask>=3.1,<4
+Pillow>=10.2,<13
+numpy>=1.26,<3
+trimesh>=4,<5
+scipy>=1.11,<2
+requests>=2.31,<3
