@@ -587,7 +587,13 @@ def _export_mesh_bytes(mesh: trimesh.Trimesh, output_format: str) -> bytes:
 
 def _safe_internal_error(exc: Exception):
     reference = uuid.uuid4().hex[:12]
-    logger.exception("[Server] Internal error reference=%s: %s", reference, exc)
+    # Never serialize exception text or tracebacks: model/runtime errors can
+    # contain local paths, prompts, environment details, or model identifiers.
+    logger.error(
+        "[Server] Internal error reference=%s type=%s",
+        reference,
+        type(exc).__name__,
+    )
     return jsonify({
         "error": "Mesh generation failed",
         "reference": reference,
@@ -706,8 +712,14 @@ def generate_mesh():
             try:
                 backend = get_backend("trellis")
                 mesh = backend.generate(images, seed=seed, quality=quality)
-            except Exception as e:
-                logger.warning(f"[Server] TRELLIS failed: {e}, falling back to TripoSR")
+            except Exception as exc:
+                reference = uuid.uuid4().hex[:12]
+                logger.warning(
+                    "[Server] TRELLIS failed reference=%s type=%s; "
+                    "falling back to TripoSR",
+                    reference,
+                    type(exc).__name__,
+                )
                 backend = get_backend("triposr")
                 mesh = backend.generate(images, seed=seed, quality=quality)
         else:

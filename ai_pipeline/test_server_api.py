@@ -113,19 +113,21 @@ class SidecarAPITests(unittest.TestCase):
 
     @mock.patch.object(server, "get_backend", side_effect=RuntimeError("secret path"))
     def test_internal_errors_do_not_expose_tracebacks(self, _get_backend):
-        response = self.client.post(
-            "/generate",
-            data={
-                "images[]": (io.BytesIO(_png_bytes()), "input.png"),
-                "remove_bg": "false",
-            },
-            content_type="multipart/form-data",
-        )
+        with self.assertLogs(server.logger, level="ERROR") as captured:
+            response = self.client.post(
+                "/generate",
+                data={
+                    "images[]": (io.BytesIO(_png_bytes()), "input.png"),
+                    "remove_bg": "false",
+                },
+                content_type="multipart/form-data",
+            )
         self.assertEqual(response.status_code, 500)
         self.assertEqual(response.json["error"], "Mesh generation failed")
         self.assertIn("reference", response.json)
         self.assertNotIn("traceback", response.json)
         self.assertNotIn("secret path", response.get_data(as_text=True))
+        self.assertNotIn("secret path", "\n".join(captured.output))
 
 
 if __name__ == "__main__":
