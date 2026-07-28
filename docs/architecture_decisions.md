@@ -38,3 +38,22 @@
 - Tradeoffs: honest release boundary while signing infrastructure is pending.
 - Final choice: host-tested MVP status.
 - Follow-up: add dedicated release workflow and evidence manifest.
+
+## ADR-004: Use the dependency-locked Boost in macOS CI
+
+- Decision: do not install or inject Homebrew Boost into the macOS application
+  configure path; use the Boost version built by `deps/`.
+- Context: clean-host run `30328398624` built Boost 1.84 in the dependency
+  prefix, but Homebrew Boost 1.90 appeared first in `CMAKE_PREFIX_PATH`.
+  CMake then required `boost_system` 1.90 and rejected the available,
+  internally consistent 1.84 component.
+- Options considered: pin a Homebrew formula, upgrade the full dependency
+  bundle, or remove the redundant Homebrew Boost.
+- Tradeoffs: the dependency build remains longer, but the application and its
+  components resolve from one version-locked prefix.
+- Security impact: reduces unreviewed dependency drift in clean-host builds.
+- Local-first impact: neutral; no runtime network behavior changes.
+- Compliance impact: improves build provenance but is not release evidence.
+- Final choice: dependency-locked Boost only.
+- Follow-up: require a green macOS/Windows/Linux matrix before changing the
+  host-tested MVP boundary.
