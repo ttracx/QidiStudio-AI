@@ -46,7 +46,7 @@ else ()
         endif()
     endif()
 
-    set(_build_j -j)
+    set(_build_j "-j${NPROC}")
     if(DEFINED ENV{CMAKE_BUILD_PARALLEL_LEVEL})
         set(_build_j "-j$ENV{CMAKE_BUILD_PARALLEL_LEVEL}")
     endif()

@@ -57,3 +57,25 @@
 - Final choice: dependency-locked Boost only.
 - Follow-up: require a green macOS/Windows/Linux matrix before changing the
   host-tested MVP boundary.
+
+## ADR-005: Bound macOS dependency build concurrency
+
+- Decision: cap macOS CI dependency builds at four concurrent jobs through
+  `CMAKE_BUILD_PARALLEL_LEVEL`; make FFmpeg fall back to the dependency
+  project's bounded processor count instead of unbounded `make -j`.
+- Context: clean-host run `30331910176` progressed beyond dependency
+  resolution, but concurrent wxWidgets Ninja and FFmpeg Make processes
+  exhausted the macOS runner process limit. The log recorded
+  `posix_spawn: Resource temporarily unavailable`.
+- Options considered: rerun unchanged, serialize all dependency builds, or
+  retain parallel builds with a conservative explicit cap.
+- Tradeoffs: four jobs may increase build time compared with an unconstrained
+  runner, but avoids nondeterministic process exhaustion while retaining useful
+  parallelism.
+- Security impact: neutral; no runtime behavior or network boundary changes.
+- Local-first impact: neutral.
+- Compliance impact: improves clean-host build determinism but is not release
+  evidence.
+- Final choice: four concurrent jobs in macOS CI and a bounded FFmpeg default.
+- Follow-up: require a green macOS/Windows/Linux matrix before changing the
+  host-tested MVP boundary.

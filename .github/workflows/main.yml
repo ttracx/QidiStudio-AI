@@ -126,6 +126,9 @@ jobs:
     - name: Build QIDI Studio on MacOS 
       if: startsWith(matrix.os, 'macos-')
       run: |
+          # Keep nested Ninja/Make dependency builds below the macOS runner's
+          # process limit. The deps project and FFmpeg both honor this value.
+          export CMAKE_BUILD_PARALLEL_LEVEL=4
           export ICU_PATH=$(brew --prefix icu4c)
           export CURL_PATH=$(brew --prefix curl)
           export ZLIB_PATH=$(brew --prefix zlib)
