@@ -2,7 +2,7 @@
 
 | Priority | Status | Task | Acceptance and tests | Security/docs |
 |---:|---|---|---|---|
-| 9.2 | In progress | Prove full desktop build on macOS, Windows, Linux | Clean-host CI builds compile the dialog/client and publish checksummed artifacts | Run `30331910176` passed the Boost configure boundary but exhausted the macOS process limit during concurrent wxWidgets/FFmpeg builds; rerun required with the four-job cap |
+| 9.2 | In progress | Prove full desktop build on macOS, Windows, Linux | Clean-host CI builds compile the dialog/client and publish checksummed artifacts | Run `30454473776` completed the capped macOS dependency build, then found an internal-build source manifest defect; rerun required after gating ignored public-release-only QIDI sources |
 | 9.0 | Blocked | Validate real TRELLIS and TripoSR inference | Approved CUDA host generates and imports fixture meshes; topology claims independently checked | No fixture photos leave host; record model hashes/licenses |
 | 8.7 | Complete | Harden local sidecar boundary | API tests cover Host/Origin, limits, validation, sanitized failures | `security_model.md` updated |
 | 8.5 | Complete | Replace desktop generation placeholder | Dialog calls real libcurl client; cross-platform temp path used | Loopback URL enforced |
@@ -15,11 +15,11 @@
 Python sidecar contract/security tests and synthetic mesh smoke tests pass on a
 host without GPU model weights. No full QIDIStudio binary, real-model inference,
 printer hardware, signed package, notarization ticket, or clean-host installer
-was validated in this repository pass. Clean-host run `30331910176` passed the
-earlier Boost configure boundary, then stopped during the macOS dependency
-build when concurrent wxWidgets Ninja and an unbounded FFmpeg `make -j`
-exhausted the runner process limit
-(`posix_spawn: Resource temporarily unavailable`). macOS CI now exports
-`CMAKE_BUILD_PARALLEL_LEVEL=4`, and FFmpeg defaults to the dependency project's
-bounded `NPROC` value when no override is present. A green rerun is still
-required; this resource-control fix is not desktop build proof.
+was validated in this repository pass. Clean-host run `30454473776` completed
+the macOS dependency build under the four-job cap, then stopped during
+application generation because the source manifest unconditionally named
+ignored public-release-only files:
+`QIDI/UserPresetSyncManager.cpp` and `.hpp`. Those entries now share the
+existing `QDT_RELEASE_TO_PUBLIC` gate with the other ignored QIDI networking
+sources. A green rerun is still required; successful dependency compilation
+and application configuration progress are not desktop build proof.

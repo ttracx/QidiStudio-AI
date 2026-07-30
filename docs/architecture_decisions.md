@@ -79,3 +79,27 @@
 - Final choice: four concurrent jobs in macOS CI and a bounded FFmpeg default.
 - Follow-up: require a green macOS/Windows/Linux matrix before changing the
   host-tested MVP boundary.
+
+## ADR-006: Gate public-release-only QIDI sources together
+
+- Decision: include `UserPresetSyncManager` sources only when
+  `QDT_RELEASE_TO_PUBLIC` is enabled, alongside the other QIDI networking
+  sources.
+- Context: the repository intentionally ignores `src/slic3r/QIDI/`. Internal
+  CI configures with `QDT_RELEASE_TO_PUBLIC=0`, but run `30454473776` named
+  `QIDI/UserPresetSyncManager.cpp` and `.hpp` unconditionally and therefore
+  failed CMake generation after the dependency build completed.
+- Options considered: commit ignored proprietary sources, add placeholder
+  implementations, or make the source manifest match the existing compile-time
+  public-release boundary.
+- Tradeoffs: internal builds do not compile public QIDI synchronization code;
+  public release builds still require the separately managed source set.
+- Security impact: avoids publishing or fabricating ignored implementation
+  details.
+- Local-first impact: neutral.
+- Compliance impact: keeps the build boundary explicit but is not release
+  evidence.
+- Final choice: one `QDT_RELEASE_TO_PUBLIC` source gate for all ignored QIDI
+  networking and preset-sync sources.
+- Follow-up: validate the internal clean-host matrix; validate public-release
+  builds only in the authorized source environment.
