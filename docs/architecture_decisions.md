@@ -103,3 +103,24 @@
   networking and preset-sync sources.
 - Follow-up: validate the internal clean-host matrix; validate public-release
   builds only in the authorized source environment.
+
+## ADR-007: Resolve GUI headers relative to the GUI source directory
+
+- Decision: include `ImGuiWrapper.hpp` directly from
+  `AIPhotoTo3DDialog.hpp`, matching the other headers and sources in
+  `src/slic3r/GUI`.
+- Context: clean-host run `30545217599` configured successfully and compiled
+  424/712 macOS application targets before Clang rejected
+  `GUI/ImGuiWrapper.hpp`. The including header already resides in `GUI`, so the
+  prefixed path resolves to a nonexistent nested `GUI/GUI` path.
+- Options considered: add a broader include directory, use a parent-relative
+  path, or correct the same-directory include.
+- Tradeoffs: the direct include relies on the existing GUI target include
+  layout, which is already used throughout the module.
+- Security impact: neutral; no network, secret, or runtime boundary changes.
+- Local-first impact: neutral.
+- Compliance impact: improves clean-host determinism but is not release
+  evidence.
+- Final choice: use the established same-directory include form.
+- Follow-up: require a green full OS matrix before changing the host-tested MVP
+  boundary.

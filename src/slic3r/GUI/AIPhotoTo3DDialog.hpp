@@ -11,7 +11,7 @@
 #include <memory>
 #include <string>
 
-#include "GUI/ImGuiWrapper.hpp"
+#include "ImGuiWrapper.hpp"
 
 namespace Slic3r {
 namespace GUI {
