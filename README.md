@@ -321,6 +321,24 @@ All new files (AI pipeline, GUI integration) are also AGPL v3.
 
 See [LICENSE](LICENSE) for details.
 
+## For AI Agents
+
+**Read [`HANDOFF.md`](HANDOFF.md) first.** It tells you the current state, active branches, and what each agent team owns.
+
+### Agent Team Dispatch
+| Team | Domain | Scope |
+|------|--------|-------|
+| **Pipeline Team** | AI mesh generation (TRELLIS, TripoSR), mesh repair | `ai_pipeline/` |
+| **GUI Team** | C++ wxWidgets integration, File→Import menu | `src/slic3r/GUI/` |
+| **Build Team** | CMake, macOS bundling, dependency management | Root build files |
+| **Docs Team** | README, handoff, architecture docs | Root docs |
+
+**Rules:**
+- Pipeline (Python) and GUI (C++) are independent — can work in parallel
+- Mesh repair pipeline must produce watertight/manifold output
+- Contract with AIPipelineClient: form field "flatten", file part "images[]", response headers X-ThoxForge-*
+- Push to feature branches, PR to main
+
 ## Contributing
 
 This is a fork for THOX.ai internal use. PRs welcome.
