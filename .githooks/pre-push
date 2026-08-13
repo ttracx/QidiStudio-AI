@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# Pre-push hook — runs scripts/ci.sh and blocks push on failure.
+set -euo pipefail
+
+echo "=== pre-push: running local CI gate ==="
+if [ -x scripts/ci.sh ]; then
+  scripts/ci.sh
+  echo "=== pre-push: CI GREEN, push allowed ==="
+else
+  echo "ERROR: scripts/ci.sh not found or not executable"
+  exit 1
+fi

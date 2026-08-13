@@ -8,7 +8,7 @@ on:
 jobs:
   ai-sidecar:
     name: AI sidecar contract and security checks
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux]
     permissions:
       contents: read
     steps:
@@ -32,7 +32,7 @@ jobs:
   main:    
     strategy:
       matrix:
-        os: [ubuntu-latest, windows-2022, macos-15]
+        os: [self-hosted, macOS]
     runs-on: ${{ matrix.os }}
 
     steps:
@@ -66,7 +66,7 @@ jobs:
           libosmesa6-dev
           
     - name: Setup libraries on Mac
-      if: startsWith(matrix.os, 'macos-')    
+      if: contains(matrix.os, 'macOS')    
       run: |
           brew update-reset
           brew update
@@ -124,7 +124,7 @@ jobs:
           ./BuildLinux.sh -dsi
 
     - name: Build QIDI Studio on MacOS 
-      if: startsWith(matrix.os, 'macos-')
+      if: contains(matrix.os, 'macOS')
       run: |
           # Keep nested Ninja/Make dependency builds below the macOS runner's
           # process limit. The deps project and FFmpeg both honor this value.
@@ -154,7 +154,7 @@ jobs:
         path: install_dir
 
     - name: Upload Artifacts on MacOS
-      if: startsWith(matrix.os, 'macos-')
+      if: contains(matrix.os, 'macOS')
       uses: actions/upload-artifact@v5.0.0
       with:
         name: QIDIStudio_macos
