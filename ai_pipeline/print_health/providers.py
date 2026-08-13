@@ -265,14 +265,14 @@ def build_providers(timeout_s: float) -> list[Any]:
     OpenAI and local Ollama are enabled when their credentials/model are present.
     Direct Ollama Cloud is enabled only when OLLAMA_API_KEY is configured. Cloud
     intentionally does not request Ollama structured outputs because that feature is
-    currently documented as local-only; JSON is validated after the response instead.
+    currently documented as unsupported on Cloud; JSON is validated after response.
     """
     providers: list[Any] = []
     openai_key = os.getenv("OPENAI_API_KEY", "").strip()
     if openai_key:
         providers.append(
             OpenAIProvider(
-                model=os.getenv("THOX_OPENAI_VISION_MODEL", "gpt-5.6-luna"),
+                model=os.getenv("THOX_OPENAI_VISION_MODEL", "gpt-5"),
                 api_key=openai_key,
                 base_url=os.getenv("THOX_OPENAI_BASE_URL", "https://api.openai.com/v1"),
                 timeout_s=timeout_s,
@@ -292,7 +292,7 @@ def build_providers(timeout_s: float) -> list[Any]:
         )
 
     cloud_key = os.getenv("OLLAMA_API_KEY", "").strip()
-    cloud_model = os.getenv("THOX_OLLAMA_CLOUD_MODEL", "qwen3-vl:235b").strip()
+    cloud_model = os.getenv("THOX_OLLAMA_CLOUD_MODEL", "qwen3-vl:235b-cloud").strip()
     if cloud_key and cloud_model:
         providers.append(
             OllamaProvider(
