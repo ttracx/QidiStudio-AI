@@ -373,6 +373,12 @@ set(SLIC3R_GUI_SOURCES
     GUI/AIPhotoTo3DDialog.hpp
     GUI/AIPipelineClient.cpp
     GUI/AIPipelineClient.hpp
+    GUI/ThoxAgentClient.cpp
+    GUI/ThoxAgentClient.hpp
+    GUI/ThoxPrintHealthPanel.cpp
+    GUI/ThoxPrintHealthPanel.hpp
+    GUI/ThoxScanToPrintDialog.cpp
+    GUI/ThoxScanToPrintDialog.hpp
     GUI/BaseTransparentDPIFrame.cpp
     GUI/BaseTransparentDPIFrame.hpp
     GUI/SyncAmsInfoDialog.cpp

@@ -68,6 +68,7 @@
 #include "FilamentGroupPopup.hpp"
 #include "FilamentMapDialog.hpp"
 #include "AIPhotoTo3DDialog.hpp"
+#include "ThoxScanToPrintDialog.hpp"
 //cj_2
 #include "QDSDeviceManager.hpp"
 
@@ -3053,6 +3054,20 @@ void MainFrame::init_menubar_as_editor()
             [this](wxCommandEvent&) {
                 if (m_plater) {
                     AIPhotoTo3DDialog dlg(this, m_plater);
+                    dlg.ShowModal();
+                }
+            }, "menu_import", nullptr,
+            [this](){return can_add_models(); }, this);
+
+        // THOX: printer-driven Scan to Print. Distinct from the photo path
+        // above: that one GENERATES a mesh from supplied photos, this one
+        // MEASURES an object sitting on the bed by using the bed as a
+        // calibrated stage. Different guarantees, so they are separate items.
+        append_menu_item(import_menu, wxID_ANY, _L("Scan Object on Bed...") + dots,
+            _L("Scan an object placed on the print bed and generate a printable plate"),
+            [this](wxCommandEvent&) {
+                if (m_plater) {
+                    ThoxScanToPrintDialog dlg(this, m_plater);
                     dlg.ShowModal();
                 }
             }, "menu_import", nullptr,

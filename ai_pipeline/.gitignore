@@ -1,2 +1,19 @@
 __pycache__/
 *.pyc
+.pytest_cache/
+
+# Secrets. This repository is PUBLIC - a committed .env would be published the
+# moment it lands, and API keys cannot be un-published.
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# THOX runtime state: captured frames, event logs, meshes, revised G-code.
+# Machine-local and can be large.
+scans/
+health/
+*.stl
+*.3mf
+*.thox-rev*.gcode

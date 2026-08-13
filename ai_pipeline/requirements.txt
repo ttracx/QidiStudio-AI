@@ -37,3 +37,12 @@ tqdm
 # Misc
 gunicorn>=21.2.0     # production WSGI
 python-dotenv>=1.0.0
+
+# ---------------------------------------------------------------------------
+# THOX printer-agent layer (ai_pipeline/thox/)
+# ---------------------------------------------------------------------------
+# Scan-to-print and live print-health monitoring. Deliberately light: this set
+# alone is enough to run `python -m thox.app`, so print monitoring can live on a
+# small always-on box next to the printer without a CUDA stack. numpy, Pillow
+# and flask are already required above.
+requests>=2.31         # Moonraker + vision provider HTTP

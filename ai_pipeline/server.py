@@ -856,6 +856,34 @@ def _check_cuda():
 
 
 # ---------------------------------------------------------------------------
+# THOX printer-agent layer
+# ---------------------------------------------------------------------------
+#
+# Scan-to-print and live print-health monitoring, served from this same app so
+# QIDI Studio talks to one sidecar on one port and the routes inherit the
+# local-only boundary, security headers and body-size ceiling established above.
+#
+# Registration is deliberately fault-tolerant. The THOX layer needs numpy,
+# Pillow and requests; the mesh-generation path needs torch, TRELLIS and friends.
+# Either set can be absent in a given install, and neither should be able to
+# stop the other from serving. A failure here is logged and the photo-to-3D
+# pipeline continues to work.
+
+try:
+    from thox.routes import register as _register_thox
+
+    _register_thox(app)
+    _THOX_AVAILABLE = True
+except Exception as _thox_exc:  # pragma: no cover - depends on the install
+    _THOX_AVAILABLE = False
+    logger.warning(
+        "[Server] THOX printer-agent layer unavailable (%s); "
+        "photo-to-3D endpoints are unaffected",
+        type(_thox_exc).__name__,
+    )
+
+
+# ---------------------------------------------------------------------------
 # CLI Entry Point
 # ---------------------------------------------------------------------------
 
