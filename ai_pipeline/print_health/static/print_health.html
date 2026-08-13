@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>THOX Forger · Print Health</title>
+<style>
+:root{color-scheme:dark;--bg:#090b0a;--panel:#111513;--panel2:#171c19;--line:#29322d;--text:#f9f9f9;--muted:#9da7a1;--green:#05a451;--green2:#0dd56c;--amber:#f0b429;--red:#ef5a5a;--radius:16px;font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 15% 0,#10251a 0,transparent 28%),var(--bg);color:var(--text)}button,input,select{font:inherit}.shell{max-width:1500px;margin:auto;padding:20px}.top{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:16px}.brand{display:flex;gap:12px;align-items:center}.mark{width:38px;height:38px;border:2px solid var(--green);border-radius:10px;display:grid;place-items:center;box-shadow:0 0 25px #05a45135}.mark:after{content:"";width:15px;height:15px;border:2px solid var(--green);border-radius:4px}.title{font-size:22px;font-weight:700}.title span{color:var(--green2)}.sub{font-size:12px;color:var(--muted);margin-top:2px}.pill{border:1px solid var(--line);background:#0d100f;padding:7px 10px;border-radius:999px;color:var(--muted);font-size:12px}.grid{display:grid;grid-template-columns:minmax(0,1.65fr) minmax(320px,.85fr);gap:16px}.card{background:linear-gradient(180deg,#141816,#0f1211);border:1px solid var(--line);border-radius:var(--radius);box-shadow:0 18px 55px #0006;overflow:hidden}.card h2{font-size:13px;letter-spacing:.08em;text-transform:uppercase;margin:0}.cardhead{padding:14px 16px;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;gap:10px}.camera{position:relative;aspect-ratio:16/10;background:#050605;overflow:hidden}.camera img,.camera canvas{position:absolute;inset:0;width:100%;height:100%;object-fit:contain}.camera canvas{pointer-events:none}.hud{position:absolute;top:12px;left:12px;display:flex;gap:8px;z-index:3}.badge{padding:6px 9px;border-radius:9px;background:#0b0d0ccc;border:1px solid #ffffff1a;font-size:12px;backdrop-filter:blur(10px)}.ok{color:var(--green2)}.warn{color:var(--amber)}.critical{color:var(--red)}.metrics{display:grid;grid-template-columns:repeat(4,1fr);border-top:1px solid var(--line)}.metric{padding:14px;border-right:1px solid var(--line)}.metric:last-child{border-right:0}.metric .k{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.06em}.metric .v{font-size:19px;font-weight:650;margin-top:4px}.controls{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;padding:12px}.btn{border:1px solid var(--line);border-radius:10px;padding:10px 12px;background:#181d1a;color:var(--text);cursor:pointer;transition:.15s}.btn:hover{border-color:#4e5d55;transform:translateY(-1px)}.btn.primary{background:var(--green);border-color:var(--green);color:white}.btn.danger{background:#351515;border-color:#683131;color:#ffdada}.btn:disabled{opacity:.45;cursor:not-allowed;transform:none}.side{display:flex;flex-direction:column;gap:16px}.section{padding:14px 16px}.row{display:flex;gap:10px;align-items:center}.row>*{min-width:0}.row .grow{flex:1}.select,.input{width:100%;border:1px solid var(--line);background:#0b0f0d;color:var(--text);border-radius:9px;padding:9px 10px}.label{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:5px}.risk{display:flex;align-items:center;gap:12px;margin-bottom:12px}.score{font-size:36px;font-weight:750;line-height:1}.bar{height:8px;background:#0a0d0b;border-radius:999px;overflow:hidden;flex:1}.bar>div{height:100%;width:0;background:var(--green);transition:.25s}.defects{display:flex;flex-wrap:wrap;gap:7px}.tag{font-size:11px;border:1px solid var(--line);background:#0b0f0d;border-radius:999px;padding:5px 8px}.providers{margin-top:12px;font-size:12px;color:var(--muted)}.timeline{max-height:300px;overflow:auto}.event{padding:11px 14px;border-bottom:1px solid #202723}.event:last-child{border-bottom:0}.eventTop{display:flex;justify-content:space-between;gap:10px;font-size:11px}.eventType{font-weight:700;color:var(--green2);text-transform:uppercase;letter-spacing:.05em}.eventTime{color:#6f7a74}.eventDetail{font-size:12px;color:#cbd2ce;margin-top:5px;line-height:1.4}.revs{max-height:280px;overflow:auto}.rev{padding:12px 14px;border-bottom:1px solid #202723}.rev strong{font-size:13px}.diff{font:11px ui-monospace,SFMono-Regular,Menlo,monospace;color:#aeb8b2;margin-top:6px;white-space:pre-wrap}.statusdot{width:8px;height:8px;border-radius:50%;background:#555;display:inline-block;margin-right:7px}.statusdot.live{background:var(--green2);box-shadow:0 0 12px #0dd56caa}.twocol{display:grid;grid-template-columns:1fr 1fr;gap:10px}.help{font-size:11px;color:var(--muted);line-height:1.45;margin-top:8px}.footer{margin-top:14px;color:#6f7a74;font-size:11px;text-align:right}@media(max-width:950px){.grid{grid-template-columns:1fr}.metrics{grid-template-columns:repeat(2,1fr)}.controls{grid-template-columns:repeat(2,1fr)}.shell{padding:10px}.top{align-items:flex-start;flex-direction:column}}
+</style>
+</head>
+<body>
+<div class="shell">
+  <div class="top">
+    <div class="brand"><div class="mark"></div><div><div class="title">THOX Forger <span>Print Health</span></div><div class="sub">Qidi Q2 · fused vision · adaptive closed-loop supervision</div></div></div>
+    <div class="row"><span class="pill" id="printerPill">Printer —</span><span class="pill" id="monitorPill"><span class="statusdot" id="liveDot"></span>Monitor stopped</span></div>
+  </div>
+
+  <div class="grid">
+    <div>
+      <section class="card">
+        <div class="cardhead"><h2>Live camera + defect overlay</h2><div class="row"><button class="btn" id="analyzeBtn">Analyze now</button><button class="btn primary" id="monitorBtn">Start monitor</button></div></div>
+        <div class="camera" id="cameraBox">
+          <img id="camera" alt="Qidi Q2 camera">
+          <canvas id="overlay"></canvas>
+          <div class="hud"><div class="badge" id="severityBadge">NO ASSESSMENT</div><div class="badge" id="sampleBadge">sample —</div></div>
+        </div>
+        <div class="metrics">
+          <div class="metric"><div class="k">Quality</div><div class="v" id="quality">—</div></div>
+          <div class="metric"><div class="k">Confidence</div><div class="v" id="confidence">—</div></div>
+          <div class="metric"><div class="k">Progress</div><div class="v" id="progress">—</div></div>
+          <div class="metric"><div class="k">Retry budget</div><div class="v" id="retry">—</div></div>
+        </div>
+        <div class="controls">
+          <button class="btn" data-action="pause">Pause</button>
+          <button class="btn" data-action="resume">Resume</button>
+          <button class="btn danger" data-action="cancel">Cancel</button>
+          <button class="btn danger" data-action="restart">Restart</button>
+          <button class="btn primary" id="reprintBtn">Revise + reprint</button>
+        </div>
+      </section>
+
+      <section class="card" style="margin-top:16px">
+        <div class="cardhead"><h2>Detection fusion</h2><span class="pill" id="providerCount">0 providers</span></div>
+        <div class="section">
+          <div class="risk"><div><div class="label">Fused health</div><div class="score" id="healthScore">—</div></div><div class="bar"><div id="healthBar"></div></div></div>
+          <div class="defects" id="defects"><span class="tag">No detections</span></div>
+          <div class="providers" id="providers">OpenAI / Ollama status will appear here.</div>
+        </div>
+      </section>
+
+      <section class="card" style="margin-top:16px">
+        <div class="cardhead"><h2>Event log + notifications</h2><button class="btn" id="notifyBtn">Enable notifications</button></div>
+        <div class="timeline" id="events"></div>
+      </section>
+    </div>
+
+    <aside class="side">
+      <section class="card">
+        <div class="cardhead"><h2>Autonomy</h2></div>
+        <div class="section">
+          <div class="label">Policy mode</div>
+          <select class="select" id="mode">
+            <option value="observe">Observe only</option>
+            <option value="assist">Suggest + wait</option>
+            <option value="autopause">Auto-pause critical</option>
+            <option value="closed_loop">Closed-loop reprint</option>
+          </select>
+          <div class="help" id="safety">Destructive autonomy remains gated by server-side environment switches and retry limits.</div>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="cardhead"><h2>Active source job</h2></div>
+        <div class="section">
+          <div class="label">Job ID</div><input class="input" id="jobId" placeholder="thox-device-rev-a">
+          <div class="label" style="margin-top:9px">Source model path on Mac</div><input class="input" id="sourceModel" placeholder="/Users/.../device.3mf">
+          <div class="label" style="margin-top:9px">Base Qidi profile</div><input class="input" id="baseProfile" placeholder="/Users/.../Q2.ini">
+          <div class="label" style="margin-top:9px">Slicer binary</div><input class="input" id="slicerBin" value="qidi-slicer">
+          <button class="btn primary" id="registerBtn" style="width:100%;margin-top:10px">Register job for remediation</button>
+          <div class="help" id="jobSummary">Registering the original model/profile enables bounded re-slice revisions instead of editing raw G-code.</div>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="cardhead"><h2>Revision history</h2></div>
+        <div class="revs" id="revisions"><div class="event"><div class="eventDetail">No revisions yet.</div></div></div>
+      </section>
+
+      <section class="card">
+        <div class="cardhead"><h2>Object scan capture</h2></div>
+        <div class="section">
+          <div class="twocol"><div><div class="label">Toolhead X</div><input class="input" id="scanX" type="number" value="135"></div><div><div class="label">Toolhead Y</div><input class="input" id="scanY" type="number" value="135"></div></div>
+          <button class="btn" id="scanBtn" style="width:100%;margin-top:10px">Capture calibrated frame</button>
+          <div class="help">Optional scan motion is hard-gated. Use several object rotations for true multi-view reconstruction, then feed captures to the existing AI Photo-to-3D pipeline.</div>
+        </div>
+      </section>
+    </aside>
+  </div>
+  <div class="footer">Your AI. Your Data. Your Rules.™</div>
+</div>
+<script>
+const $=id=>document.getElementById(id); let state=null,lastEventId='';
+async function api(path,options={}){const r=await fetch(path,{cache:'no-store',headers:{'Content-Type':'application/json',...(options.headers||{})},...options});let data={};try{data=await r.json()}catch{}if(!r.ok)throw new Error(data.error||`HTTP ${r.status}`);return data}
+function esc(v){return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
+function pct(v){return `${Math.round((Number(v)||0)*100)}%`}
+function timeText(v){if(!v)return'';try{return new Date(v).toLocaleTimeString()}catch{return v}}
+function setSeverity(s){const el=$('severityBadge');el.className='badge '+(s==='critical'?'critical':s==='warning'?'warn':'ok');el.textContent=(s||'no assessment').toUpperCase()}
+function drawOverlay(){const img=$('camera'),c=$('overlay');const box=$('cameraBox').getBoundingClientRect();const dpr=devicePixelRatio||1;c.width=box.width*dpr;c.height=box.height*dpr;c.style.width=box.width+'px';c.style.height=box.height+'px';const ctx=c.getContext('2d');ctx.scale(dpr,dpr);ctx.clearRect(0,0,box.width,box.height);const detections=state?.assessment?.detections||[];const naturalW=img.naturalWidth||16,naturalH=img.naturalHeight||10;const scale=Math.min(box.width/naturalW,box.height/naturalH);const dispW=naturalW*scale,dispH=naturalH*scale,ox=(box.width-dispW)/2,oy=(box.height-dispH)/2;ctx.font='12px ui-monospace,monospace';for(const d of detections){const b=d.bbox||{};const x=ox+(b.x1||0)/1000*dispW,y=oy+(b.y1||0)/1000*dispH,w=((b.x2||1000)-(b.x1||0))/1000*dispW,h=((b.y2||1000)-(b.y1||0))/1000*dispH;ctx.strokeStyle=d.severity==='critical'?'#ef5a5a':'#f0b429';ctx.lineWidth=2;ctx.strokeRect(x,y,w,h);const label=`${d.defect} ${Math.round((d.confidence||0)*100)}%`;const tw=ctx.measureText(label).width+10;ctx.fillStyle='rgba(6,8,7,.86)';ctx.fillRect(x,Math.max(0,y-20),tw,18);ctx.fillStyle=d.severity==='critical'?'#ff8a8a':'#ffd675';ctx.fillText(label,x+5,Math.max(13,y-7))}}
+function render(){if(!state)return;const a=state.assessment,t=state.telemetry||{};$('printerPill').textContent=`${state.printer?.online?'Online':'Offline'} · ${state.printer?.host||'printer'}`;$('liveDot').classList.toggle('live',!!state.running);$('monitorPill').innerHTML=`<span class="statusdot ${state.running?'live':''}"></span>${state.running?'Monitor running':'Monitor stopped'}`;$('monitorBtn').textContent=state.running?'Stop monitor':'Start monitor';$('mode').value=state.mode||'autopause';$('progress').textContent=pct(t.progress);$('retry').textContent=`${state.retry_budget?.used||0}/${state.retry_budget?.max||0}`;$('sampleBadge').textContent=`sample ${Number(state.next_sample_s||0).toFixed(1)}s`;if(a){setSeverity(a.severity);$('quality').textContent=a.quality_score;$('confidence').textContent=pct(a.confidence);$('healthScore').textContent=a.quality_score;$('healthBar').style.width=`${a.quality_score}%`;$('healthBar').style.background=a.severity==='critical'?'#ef5a5a':a.severity==='warning'?'#f0b429':'#05a451';$('providerCount').textContent=`${a.providers?.length||0} providers`;$('defects').innerHTML=(a.detections?.length?a.detections.map(d=>`<span class="tag ${d.severity==='critical'?'critical':'warn'}">${esc(d.defect)} · ${Math.round((d.confidence||0)*100)}%</span>`).join(''):'<span class="tag">No detections</span>');$('providers').textContent=(a.providers||[]).map(p=>`${p.provider}:${p.model} ${Math.round((p.confidence||0)*100)}%`).join(' · ')+(a.provider_failures?.length?` · ${a.provider_failures.length} provider failure(s)`: '')}else{setSeverity('');$('quality').textContent='—';$('confidence').textContent='—';$('healthScore').textContent='—'}const s=state.safety||{};$('safety').textContent=`Agent gates — cancel ${s.allow_agent_cancel?'ON':'OFF'}, restart ${s.allow_agent_restart?'ON':'OFF'}, reprint ${s.allow_agent_reprint?'ON':'OFF'}; min ${s.min_consensus_providers||2} vision providers; auto-pause ≥ ${Math.round((s.auto_pause_confidence||0)*100)}%.`;if(state.job){$('jobId').value=state.job.job_id||'';$('sourceModel').value=state.job.source_model||'';$('baseProfile').value=state.job.base_profile||'';$('slicerBin').value=state.job.slicer_bin||'qidi-slicer';$('jobSummary').textContent=`${state.job.job_id} · retry ${state.job.retry_count}/${state.retry_budget?.max||0} · ${state.job.remote_filename||'no remote G-code'}`;}drawOverlay()}
+async function refresh(){try{state=await api('/api/print-health/state');render();$('camera').src='/api/print-health/camera?t='+Date.now()}catch(e){$('printerPill').textContent='Print Health unavailable'}}
+async function loadEvents(){try{const d=await api('/api/print-health/events?limit=80');$('events').innerHTML=(d.events||[]).map(e=>`<div class="event"><div class="eventTop"><span class="eventType">${esc(e.type)}</span><span class="eventTime">${esc(timeText(e.at))}</span></div><div class="eventDetail">${esc(e.detail)}</div></div>`).join('')||'<div class="event"><div class="eventDetail">No events.</div></div>';const latest=d.events?.[0];if(latest&&latest.id!==lastEventId){const old=lastEventId;lastEventId=latest.id;if(old&&Notification.permission==='granted'&&['action_required','error','reprint','action'].includes(latest.type))new Notification('THOX Print Health',{body:latest.detail})}}catch{}}
+async function loadRevisions(){try{const d=await api('/api/print-health/revisions');$('revisions').innerHTML=(d.revisions||[]).map(r=>{const rev=r.revision||{},diff=r.diff||{};const lines=Object.entries(diff).slice(0,8).map(([k,v])=>`${k}: ${v.before} → ${v.after}`).join('\n');return `<div class="rev"><strong>Revision ${esc(rev.revision)} · ${esc(rev.status)}</strong><div class="eventDetail">${esc(rev.reason)}</div><div class="diff">${esc(lines)}</div></div>`}).join('')||'<div class="event"><div class="eventDetail">No revisions yet.</div></div>'}catch{}}
+async function post(path,data={}){try{const d=await api(path,{method:'POST',body:JSON.stringify(data)});await refresh();await loadEvents();await loadRevisions();return d}catch(e){alert(e.message);throw e}}
+$('monitorBtn').onclick=()=>post(state?.running?'/api/print-health/stop':'/api/print-health/start');$('analyzeBtn').onclick=()=>post('/api/print-health/analyze');$('mode').onchange=e=>post('/api/print-health/mode',{mode:e.target.value});document.querySelectorAll('[data-action]').forEach(b=>b.onclick=()=>{const action=b.dataset.action;const destructive=['cancel','restart'].includes(action);if(destructive&&!confirm(`${action.toUpperCase()} the printer/job?`))return;post('/api/print-health/control',{action,confirm:destructive})});$('reprintBtn').onclick=()=>{if(confirm('Generate a bounded revised slice, cancel the failed job if needed, upload and start the replacement?'))post('/api/print-health/remediate',{confirm:true,auto_start:true})};$('registerBtn').onclick=()=>post('/api/print-health/job',{job_id:$('jobId').value,source_model:$('sourceModel').value,base_profile:$('baseProfile').value,slicer_bin:$('slicerBin').value});$('scanBtn').onclick=()=>post('/api/scan/capture',{pose:{x:Number($('scanX').value),y:Number($('scanY').value)}});$('notifyBtn').onclick=async()=>{if('Notification'in window){const p=await Notification.requestPermission();$('notifyBtn').textContent=p==='granted'?'Notifications enabled':'Notifications blocked'}};$('camera').onload=drawOverlay;window.onresize=drawOverlay;
+refresh();loadEvents();loadRevisions();setInterval(()=>{refresh();loadEvents();loadRevisions()},2500);
+</script>
+</body>
+</html>
