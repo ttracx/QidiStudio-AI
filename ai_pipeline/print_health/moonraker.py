@@ -149,7 +149,7 @@ class MoonrakerClient:
 
     def start_print(self, filename: str) -> None:
         safe_name = str(filename).replace("\\", "/").split("/")[-1]
-        if not safe_name or safe_name != filename.replace("\\", "/").split("/")[-1]:
+        if not safe_name:
             raise MoonrakerError("invalid remote G-code filename")
         query = urllib.parse.urlencode({"filename": safe_name})
         self._request("/printer/print/start?" + query, method="POST", data={})
@@ -157,7 +157,7 @@ class MoonrakerClient:
     def upload_gcode(self, local_path: str, remote_name: str | None = None) -> str:
         """Upload G-code using Moonraker's multipart endpoint.
 
-        Uses stdlib email/multipart construction to avoid a runtime dependency on
+        Uses stdlib multipart construction to avoid a runtime dependency on
         requests/httpx in the AI sidecar.
         """
         from pathlib import Path
@@ -206,20 +206,54 @@ class MoonrakerClient:
         return name
 
     def safe_scan_pose(self, x: float, y: float, z: float | None = None) -> None:
-        """Move the toolhead to a bounded calibration pose for camera scan capture.
+        """Move to a bounded, interlocked calibration pose for object scanning.
 
-        This is intentionally not a generic G-code method. It is disabled unless
-        THOX_ALLOW_SCAN_MOTION=true and clamps XY to the Q2 printable envelope.
-        Z is optional and limited to a conservative 5..220 mm range.
+        Safety invariants:
+        * disabled unless ``THOX_ALLOW_SCAN_MOTION=true``;
+        * never moves during printing or while a job is paused;
+        * XYZ must already be homed;
+        * Z raises to a conservative clearance height before any XY movement;
+        * lowering Z below clearance requires a second explicit opt-in;
+        * no caller can submit arbitrary G-code.
         """
         if os.getenv("THOX_ALLOW_SCAN_MOTION", "false").lower() != "true":
             raise MoonrakerError("scan motion is disabled")
+
+        telemetry = self.telemetry()
+        state = str(telemetry.get("state", "unknown")).lower()
+        if state in {"printing", "paused"}:
+            raise MoonrakerError(f"scan motion is blocked while printer state is {state}")
+
+        toolhead = telemetry.get("toolhead", {})
+        homed_axes = str(toolhead.get("homed_axes", "")).lower()
+        if not all(axis in homed_axes for axis in "xyz"):
+            raise MoonrakerError("scan motion requires XYZ to be homed first")
+
         x = max(10.0, min(260.0, float(x)))
         y = max(10.0, min(260.0, float(y)))
-        commands = ["G90", f"G1 X{x:.2f} Y{y:.2f} F3000"]
+        clearance_z = max(120.0, min(220.0, float(os.getenv("THOX_SCAN_CLEARANCE_Z", "220"))))
+
+        commands = [
+            "G90",
+            f"G1 Z{clearance_z:.2f} F600",
+            f"G1 X{x:.2f} Y{y:.2f} F3000",
+        ]
+
         if z is not None:
-            z = max(5.0, min(220.0, float(z)))
-            commands.append(f"G1 Z{z:.2f} F600")
+            requested_z = max(5.0, min(220.0, float(z)))
+            if requested_z < clearance_z:
+                if os.getenv("THOX_ALLOW_SCAN_Z_LOWERING", "false").lower() != "true":
+                    raise MoonrakerError(
+                        "scan Z lowering is disabled; keep the toolhead at clearance height "
+                        "or explicitly set THOX_ALLOW_SCAN_Z_LOWERING=true after verifying object height"
+                    )
+                minimum_z = max(5.0, min(220.0, float(os.getenv("THOX_SCAN_MIN_Z", "50"))))
+                if requested_z < minimum_z:
+                    raise MoonrakerError(
+                        f"requested scan Z {requested_z:.1f} is below configured safe minimum {minimum_z:.1f}"
+                    )
+            commands.append(f"G1 Z{requested_z:.2f} F600")
+
         script = "\n".join(commands)
         query = urllib.parse.urlencode({"script": script})
         self._request("/printer/gcode/script?" + query, method="POST", data={})
