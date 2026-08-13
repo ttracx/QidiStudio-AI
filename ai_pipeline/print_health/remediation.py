@@ -6,7 +6,6 @@ import json
 import os
 import shlex
 import subprocess
-import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -84,30 +83,15 @@ def diagnose_changes(assessment: FusedAssessment) -> ChangeSet:
         changes.acceleration_multiplier = min(changes.acceleration_multiplier, 0.65)
         changes.notes.append("Reduce motion loads after collision evidence; inspect hardware before reprint.")
 
-    # Orientation is represented in the schema but never changed automatically
-    # from a single fixed camera. A human/scan stage may set a 90-degree Z rotation.
+    # Orientation exists in ChangeSet but is intentionally never changed from a
+    # single fixed camera. A scan/human stage may explicitly request 90-degree
+    # increments after verifying the new footprint and support requirements.
     changes.rotation_z_deg = 0
     return changes.bounded()
 
 
-_CONFIG_MAPPING = {
-    "nozzle_temp_delta_c": "temperature",
-    "bed_temp_delta_c": "bed_temperature",
-    "flow_multiplier": "extrusion_multiplier",
-    "speed_multiplier": "thox_speed_multiplier",
-    "acceleration_multiplier": "thox_acceleration_multiplier",
-    "retraction_delta_mm": "thox_retraction_delta_mm",
-    "retraction_speed_delta_mm_s": "thox_retraction_speed_delta_mm_s",
-    "first_layer_height_delta_mm": "thox_first_layer_height_delta_mm",
-    "first_layer_speed_multiplier": "thox_first_layer_speed_multiplier",
-    "brim_add_mm": "thox_brim_add_mm",
-    "raft_layers_add": "thox_raft_layers_add",
-    "support_density_delta_pct": "thox_support_density_delta_pct",
-}
-
-
 def _read_ini_value(config: configparser.ConfigParser, key: str, fallback: str = "") -> str:
-    # Prusa/Qidi exported config bundles are often key=value without sections.
+    # Prusa/Qidi exported config bundles are usually sectionless key=value files.
     for section in config.sections():
         if config.has_option(section, key):
             return config.get(section, key)
@@ -122,15 +106,45 @@ def _parse_number(value: str, default: float) -> float:
         return default
 
 
-def build_override_ini(base_profile: str, changes: ChangeSet, output_path: str) -> dict[str, dict[str, Any]]:
-    """Create a small override INI plus a machine-readable before/after diff.
+def _scaled_value(raw: str, multiplier: float, *, minimum: float, maximum: float) -> str | None:
+    """Scale one numeric Prusa/Qidi value while preserving percent syntax."""
+    text = str(raw).strip()
+    if not text:
+        return None
+    is_percent = text.endswith("%")
+    value = _parse_number(text, float("nan"))
+    if value != value:  # NaN
+        return None
+    scaled = max(minimum, min(maximum, value * multiplier))
+    rendered = f"{scaled:.3f}".rstrip("0").rstrip(".")
+    return rendered + ("%" if is_percent else "")
 
-    Standard Prusa/Qidi keys are used where they are stable. THOX-only multiplier
-    keys are also emitted as metadata for the wrapper/Forger integration; the
-    command adapter converts them to concrete CLI flags when possible.
+
+def _delta_value(raw: str, delta: float, *, minimum: float, maximum: float) -> str | None:
+    text = str(raw).strip()
+    if not text or text.endswith("%"):
+        return None
+    value = _parse_number(text, float("nan"))
+    if value != value:
+        return None
+    changed = max(minimum, min(maximum, value + delta))
+    return f"{changed:.3f}".rstrip("0").rstrip(".")
+
+
+def build_override_ini(
+    base_profile: str,
+    changes: ChangeSet,
+    output_path: str,
+) -> dict[str, dict[str, Any]]:
+    """Create a concrete Qidi/Prusa override INI and before/after changelog.
+
+    AI never writes arbitrary G-code. Vision yields a bounded ChangeSet and this
+    deterministic adapter converts it into a small set of known slicer keys. If a
+    profile lacks a key or stores it in an unsupported format, that change is
+    recorded as skipped instead of guessed.
     """
-    base_text = Path(base_profile).read_text(encoding="utf-8", errors="ignore") if Path(base_profile).is_file() else ""
-    # ConfigParser requires a section. This is read-only and tolerates duplicate keys.
+    profile_path = Path(base_profile)
+    base_text = profile_path.read_text(encoding="utf-8", errors="ignore") if profile_path.is_file() else ""
     parser = configparser.ConfigParser(strict=False, interpolation=None)
     try:
         parser.read_string("[profile]\n" + base_text)
@@ -146,18 +160,146 @@ def build_override_ini(base_profile: str, changes: ChangeSet, output_path: str) 
         overrides[key] = str(after)
         diff[key] = {"before": before, "after": after, "reason": reason}
 
+    def scale_existing(
+        key: str,
+        multiplier: float,
+        *,
+        minimum: float,
+        maximum: float,
+        reason: str,
+    ) -> None:
+        before = _read_ini_value(parser, key, "")
+        after = _scaled_value(before, multiplier, minimum=minimum, maximum=maximum)
+        if after is not None and after != before:
+            set_change(key, before, after, reason)
+
+    def delta_existing(
+        key: str,
+        delta: float,
+        *,
+        minimum: float,
+        maximum: float,
+        reason: str,
+    ) -> None:
+        before = _read_ini_value(parser, key, "")
+        after = _delta_value(before, delta, minimum=minimum, maximum=maximum)
+        if after is not None and after != before:
+            set_change(key, before, after, reason)
+
+    # Thermal and material flow.
     if bounded.nozzle_temp_delta_c:
         before = _parse_number(_read_ini_value(parser, "temperature", "220"), 220.0)
         after = max(150, min(320, round(before + bounded.nozzle_temp_delta_c)))
-        set_change("temperature", before, after, "vision remediation: nozzle temperature delta")
+        set_change("temperature", before, after, "vision remediation: nozzle temperature")
+        # First layer may have a dedicated temperature in many Qidi profiles.
+        first_before_raw = _read_ini_value(parser, "first_layer_temperature", "")
+        if first_before_raw:
+            first_before = _parse_number(first_before_raw, before)
+            first_after = max(150, min(320, round(first_before + bounded.nozzle_temp_delta_c)))
+            set_change(
+                "first_layer_temperature",
+                first_before_raw,
+                first_after,
+                "vision remediation: first-layer nozzle temperature",
+            )
+
     if bounded.bed_temp_delta_c:
         before = _parse_number(_read_ini_value(parser, "bed_temperature", "60"), 60.0)
         after = max(0, min(130, round(before + bounded.bed_temp_delta_c)))
-        set_change("bed_temperature", before, after, "vision remediation: bed temperature delta")
+        set_change("bed_temperature", before, after, "vision remediation: bed temperature")
+        first_before_raw = _read_ini_value(parser, "first_layer_bed_temperature", "")
+        if first_before_raw:
+            first_before = _parse_number(first_before_raw, before)
+            first_after = max(0, min(130, round(first_before + bounded.bed_temp_delta_c)))
+            set_change(
+                "first_layer_bed_temperature",
+                first_before_raw,
+                first_after,
+                "vision remediation: first-layer bed temperature",
+            )
+
     if abs(bounded.flow_multiplier - 1.0) > 1e-6:
         before = _parse_number(_read_ini_value(parser, "extrusion_multiplier", "1.0"), 1.0)
         after = round(max(0.85, min(1.15, before * bounded.flow_multiplier)), 4)
-        set_change("extrusion_multiplier", before, after, "vision remediation: flow multiplier")
+        set_change("extrusion_multiplier", before, after, "vision remediation: flow")
+
+    # Print speeds: scale concrete profile values so revised G-code changes rather
+    # than only carrying THOX metadata.
+    if abs(bounded.speed_multiplier - 1.0) > 1e-6:
+        for key in (
+            "perimeter_speed",
+            "small_perimeter_speed",
+            "external_perimeter_speed",
+            "infill_speed",
+            "solid_infill_speed",
+            "top_solid_infill_speed",
+            "support_material_speed",
+            "support_material_interface_speed",
+            "bridge_speed",
+            "gap_fill_speed",
+        ):
+            scale_existing(
+                key,
+                bounded.speed_multiplier,
+                minimum=5.0,
+                maximum=500.0,
+                reason="vision remediation: global speed reduction",
+            )
+
+    # Acceleration: reduce only existing, numeric profile fields.
+    if abs(bounded.acceleration_multiplier - 1.0) > 1e-6:
+        for key in (
+            "perimeter_acceleration",
+            "infill_acceleration",
+            "bridge_acceleration",
+            "first_layer_acceleration",
+            "default_acceleration",
+        ):
+            scale_existing(
+                key,
+                bounded.acceleration_multiplier,
+                minimum=100.0,
+                maximum=30000.0,
+                reason="vision remediation: acceleration reduction",
+            )
+
+    # Retraction changes are only applied when the base profile exposes the key.
+    if abs(bounded.retraction_delta_mm) > 1e-6:
+        delta_existing(
+            "retract_length",
+            bounded.retraction_delta_mm,
+            minimum=0.0,
+            maximum=8.0,
+            reason="vision remediation: retraction distance",
+        )
+    if abs(bounded.retraction_speed_delta_mm_s) > 1e-6:
+        delta_existing(
+            "retract_speed",
+            bounded.retraction_speed_delta_mm_s,
+            minimum=5.0,
+            maximum=100.0,
+            reason="vision remediation: retraction speed",
+        )
+
+    # First-layer controls preserve % syntax when present.
+    if abs(bounded.first_layer_speed_multiplier - 1.0) > 1e-6:
+        scale_existing(
+            "first_layer_speed",
+            bounded.first_layer_speed_multiplier,
+            minimum=5.0,
+            maximum=150.0,
+            reason="vision remediation: first-layer speed",
+        )
+    if abs(bounded.first_layer_height_delta_mm) > 1e-6:
+        delta_existing(
+            "first_layer_height",
+            bounded.first_layer_height_delta_mm,
+            minimum=0.05,
+            maximum=0.6,
+            reason="vision remediation: first-layer height",
+        )
+
+    # Adhesion and support strategy.
     if bounded.supports is True:
         before = _read_ini_value(parser, "support_material", "0") or "0"
         set_change("support_material", before, 1, "vision remediation: support failure")
@@ -169,23 +311,36 @@ def build_override_ini(base_profile: str, changes: ChangeSet, output_path: str) 
         before = int(_parse_number(_read_ini_value(parser, "raft_layers", "0"), 0.0))
         after = min(6, before + bounded.raft_layers_add)
         set_change("raft_layers", before, after, "vision remediation: raft request")
+    if bounded.support_density_delta_pct > 0:
+        # Prusa/Qidi support spacing is inverse density: a modest positive density
+        # request safely reduces spacing. Only modify it when the profile supplies
+        # an absolute numeric spacing value.
+        spacing_raw = _read_ini_value(parser, "support_material_spacing", "")
+        spacing = _parse_number(spacing_raw, float("nan"))
+        if spacing == spacing and spacing > 0:
+            multiplier = max(0.60, 1.0 - bounded.support_density_delta_pct / 100.0)
+            after = round(max(0.25, spacing * multiplier), 3)
+            set_change(
+                "support_material_spacing",
+                spacing_raw,
+                after,
+                "vision remediation: increase support density",
+            )
 
-    # These are consumed by the command wrapper below and included in the diff.
-    metadata = {
-        "thox_speed_multiplier": bounded.speed_multiplier,
-        "thox_acceleration_multiplier": bounded.acceleration_multiplier,
-        "thox_retraction_delta_mm": bounded.retraction_delta_mm,
-        "thox_retraction_speed_delta_mm_s": bounded.retraction_speed_delta_mm_s,
-        "thox_first_layer_height_delta_mm": bounded.first_layer_height_delta_mm,
-        "thox_first_layer_speed_multiplier": bounded.first_layer_speed_multiplier,
-        "thox_support_density_delta_pct": bounded.support_density_delta_pct,
-        "thox_rotation_z_deg": bounded.rotation_z_deg,
-    }
-    for key, value in metadata.items():
-        if value not in (0, 0.0, 1, 1.0):
-            diff[key] = {"before": "base profile", "after": value, "reason": "bounded THOX remediation"}
+    # Orientation is a supported revision concept, but automatic vision diagnosis
+    # currently leaves it at 0. If a human/scan stage explicitly sets one of the
+    # allowed 90-degree values, the CLI adapter below applies it.
+    if bounded.rotation_z_deg:
+        diff["rotation_z_deg"] = {
+            "before": 0,
+            "after": bounded.rotation_z_deg,
+            "reason": "explicit scan/human orientation revision",
+        }
 
-    lines = ["# Generated by THOX Print Health. Apply after the base Qidi profile."]
+    lines = [
+        "# Generated by THOX Print Health. Apply after the base Qidi profile.",
+        "# AI did not write raw G-code; these are bounded known slicer settings.",
+    ]
     lines += [f"{key} = {value}" for key, value in overrides.items()]
     Path(output_path).write_text("\n".join(lines) + "\n", encoding="utf-8")
     return diff
@@ -194,12 +349,8 @@ def build_override_ini(base_profile: str, changes: ChangeSet, output_path: str) 
 def _build_cli_overrides(changes: ChangeSet) -> list[str]:
     bounded = changes.bounded()
     args: list[str] = []
-    # Prefer stable CLI overrides. More profile-sensitive controls remain in the
-    # generated override file/changelog and can be consumed by THOX Forger.
-    if bounded.supports is True:
-        args += ["--support-material", "1"]
-    if bounded.brim_add_mm > 0:
-        args += ["--brim-width", f"{bounded.brim_add_mm:.2f}"]
+    # Most revisions are applied through the generated config override. Keep only
+    # geometry/action overrides here that are stable across Prusa-derived CLIs.
     if bounded.rotation_z_deg:
         args += ["--rotate", str(bounded.rotation_z_deg)]
     return args
